@@ -1,2 +1,2 @@
 # vsm
-VSCode Extension for [github.com/Zeta611/M|M Language].
+VSCode Extension for [M Language](https://github.com/Zeta611/M).
