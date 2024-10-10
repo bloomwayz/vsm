@@ -1,0 +1,6 @@
+# dune init project language_server
+# OCAMLPARAM: unset
+# Shared cache: disabled
+# Shared cache location: /Users/young/.cache/dune/db
+# Workspace root: /Users/young/vsm/language_server
+# Auto-detected concurrency: 8
