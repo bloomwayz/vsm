@@ -1,6 +1,18 @@
-# dune init project language_server
+# dune build --release
 # OCAMLPARAM: unset
 # Shared cache: disabled
 # Shared cache location: /Users/young/.cache/dune/db
-# Workspace root: /Users/young/vsm/language_server
+# Workspace root: /Users/young/Desktop/vsm/language_server
 # Auto-detected concurrency: 8
+# Dune context:
+#  { name = "default"
+#  ; kind = "default"
+#  ; profile = Release
+#  ; merlin = true
+#  ; fdo_target_exe = None
+#  ; build_dir = In_build_dir "default"
+#  ; instrument_with = []
+#  }
+$ /Users/young/.opam/default/bin/ocamlc.opt -config > /var/folders/yt/pjzrxxss7fl4pz5yqzkk6q4w0000gn/T/dune_41957e_output
+$ (cd _build/default && /Users/young/.opam/default/bin/ocamlopt.opt -w -40 -g -I bin/.main.eobjs/byte -I bin/.main.eobjs/native -I /Users/young/.opam/default/lib/seq -I /Users/young/.opam/default/lib/yojson -I lib/.language_server.objs/byte -I lib/.language_server.objs/native -intf-suffix .ml -no-alias-deps -o bin/.main.eobjs/native/dune__exe__Main.cmx -c -impl bin/main.ml)
+$ (cd _build/default && /Users/young/.opam/default/bin/ocamlopt.opt -w -40 -g -o bin/main.exe lib/language_server.cmxa /Users/young/.opam/default/lib/yojson/yojson.cmxa bin/.main.eobjs/native/dune__exe__Main.cmx)
