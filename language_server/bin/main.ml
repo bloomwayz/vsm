@@ -6,6 +6,7 @@ type jsonlog =
   | Noti of Yojson.Safe.t
 
 let first = ref true
+let states : (string, string) Hashtbl.t = Hashtbl.create 39
 let log_list = ref []
 
 let string_of_jsonlog jlog =
@@ -32,6 +33,10 @@ let output_json obj =
 
 let on_initialize id =
   let capabilities = `Assoc [
+    "textDocumentSync", `Assoc [
+      "openClose", `Bool true;
+      "change", `Int 1
+    ];
     "hoverProvider", `Bool true
   ] in
   let response = `Assoc [
@@ -42,6 +47,20 @@ let on_initialize id =
   ] in
   output_json response;
   output_log (Rspn response)
+
+let on_did_open params =
+  let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  let st = params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string in
+  Hashtbl.add states path st
+
+let on_did_change params =
+  let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  let st = params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string in
+  Hashtbl.replace states path st
+
+let on_did_close params =
+  let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  Hashtbl.remove states path
 
 (* let get_token uri lnum cnum =
   let uri_len = String.length uri in
@@ -54,16 +73,19 @@ let on_initialize id =
   line *)
   
 let on_hover id params = 
-  (* let uri = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
-  let lnum = params |> Util.member "position" |> Util.member "line" in
-  let cnum = params |> Util.member "position" |> Util.member "character" in
-  let token = get_token uri lnum cnum in *)
+  let uri = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  let lnum = params |> Util.member "position" |> Util.member "line" |> Util.to_int in
+  let cnum = params |> Util.member "position" |> Util.member "character" |> Util.to_int in
+  (* let token = get_token uri lnum cnum in *)
+
+  let info = Printf.sprintf "Ln %d, Col %d" lnum cnum in
   let response = `Assoc [
     "id", `Int id;
     "result", `Assoc [
-      "contents", `String "참 잘했어요!"
+      "contents", `String info
     ]
   ] in
+
   output_json response;
   output_log (Rspn response)
 
@@ -95,6 +117,11 @@ let parse_content content =
   (if id = -1 then output_log (Noti request) else output_log (Req request));
   (id, method_name, params)
 
+(* 
+ * TODO
+ * Yojson error is raised after the document is CHANGED!
+ * Need to be debugged...
+ *)
 let rec loop () =
   match read_header () with
   | Some content_len ->
@@ -102,6 +129,9 @@ let rec loop () =
       let id, method_name, params = parse_content content in
       (match method_name with
       | "initialize" -> on_initialize id; first := false
+      | "textDocument/didOpen" -> on_did_open params
+      | "textDocument/didChange" -> on_did_change params
+      | "textDocument/didClose" -> on_did_close params
       | "textDocument/hover" -> on_hover id params
       | _ -> ());
       flush_all (); loop ()
