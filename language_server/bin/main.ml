@@ -17,77 +17,83 @@ let string_of_jsonlog jlog =
 
 let output_log newlog =
   let strlog = string_of_jsonlog newlog in
-  log_list := !log_list @ [strlog];
+  log_list := !log_list @ [ strlog ];
   let oc = open_out "/Users/young/Desktop/vsm/language_server/log.txt" in
   let rec output_log_inner lst =
     match lst with
     | [] -> ()
-    | hd::tl -> Printf.fprintf oc "%s\n\n" hd; output_log_inner tl
+    | hd :: tl ->
+        Printf.fprintf oc "%s\n\n" hd;
+        output_log_inner tl
   in
-  output_log_inner !log_list; close_out oc
+  output_log_inner !log_list;
+  close_out oc
 
 let output_json obj =
-  let msg  = Yojson.Safe.pretty_to_string ~std:true obj in
+  let msg = Yojson.Safe.pretty_to_string ~std:true obj in
   let size = String.length msg in
   Printf.printf "Content-Length: %d\r\n\r\n%s" size msg
 
 let on_initialize id =
-  let capabilities = `Assoc [
-    "textDocumentSync", `Assoc [
-      "openClose", `Bool true;
-      "change", `Int 1
-    ];
-    "hoverProvider", `Bool true
-  ] in
-  let response = `Assoc [
-    "id", `Int id;
-    "result", `Assoc [
-      "capabilities", capabilities
-    ]
-  ] in
+  let capabilities =
+    `Assoc
+      [
+        ( "textDocumentSync",
+          `Assoc [ ("openClose", `Bool true); ("change", `Int 1) ] );
+        ("hoverProvider", `Bool true);
+      ]
+  in
+  let response =
+    `Assoc
+      [ ("id", `Int id); ("result", `Assoc [ ("capabilities", capabilities) ]) ]
+  in
   output_json response;
   output_log (Rspn response)
 
 let on_did_open params =
-  let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
-  let st = params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string in
+  let path =
+    params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
+  in
+  let st =
+    params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string
+  in
   Hashtbl.add states path st
 
 let on_did_change params =
-  let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  let path =
+    params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
+  in
   let changes = params |> Util.member "contentChanges" |> Util.to_list in
-  (match changes with
-  | (`String st) :: _ -> Hashtbl.replace states path st
+  match changes with
+  | `String st :: _ -> Hashtbl.replace states path st
   | _ -> ()
-  )
 
 let on_did_close params =
-  let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  let path =
+    params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
+  in
   Hashtbl.remove states path
 
-(* let get_token uri lnum cnum =
-  let uri_len = String.length uri in
-  let fpath = String.sub uri 7 uri_len in
-  let fin = open_in fpath in
-  for i = 1 to lnum do
-    let _ = input_line fin
-  done in
-  let line = input_line fin in
-  line *)
-  
-let on_hover id params = 
-  (* let uri = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in *)
-  let lnum = params |> Util.member "position" |> Util.member "line" |> Util.to_int in
-  let cnum = params |> Util.member "position" |> Util.member "character" |> Util.to_int in
-  (* let token = get_token uri lnum cnum in *)
+(* let get_token uri lnum cnum = let uri_len = String.length uri in let fpath =
+   String.sub uri 7 uri_len in let fin = open_in fpath in for i = 1 to lnum do
+   let _ = input_line fin done in let line = input_line fin in line *)
 
+let on_hover id params =
+  (* let uri = params |> Util.member "textDocument" |> Util.member "uri" |>
+     Util.to_string in *)
+  let lnum =
+    params |> Util.member "position" |> Util.member "line" |> Util.to_int
+  in
+  let cnum =
+    params |> Util.member "position" |> Util.member "character" |> Util.to_int
+  in
+
+  (* let token = get_token uri lnum cnum in *)
   let info = Printf.sprintf "Ln %d, Col %d" lnum cnum in
-  let response = `Assoc [
-    "id", `Int id;
-    "result", `Assoc [
-      "contents", `String info
-    ]
-  ] in
+  let response =
+    `Assoc
+      [ ("id", `Int id); ("result", `Assoc [ ("contents", `String info) ]) ]
+  in
 
   output_json response;
   output_log (Rspn response)
@@ -95,12 +101,11 @@ let on_hover id params =
 let read_header () =
   let header = input_line stdin in
   let header_len = String.length header in
-  if (header = "\r") then failwith("wtf???")
-  else if header_len >= 16 && String.sub header 0 16 = "Content-Length: " then (
+  if header = "\r" then failwith "wtf???"
+  else if header_len >= 16 && String.sub header 0 16 = "Content-Length: " then
     let temp = String.trim (String.sub header 16 (header_len - 16)) in
     Some (int_of_string temp)
-  ) else
-    failwith ("retry...")
+  else failwith "retry..."
 
 let read_content clen =
   let _ = input_line stdin in
@@ -111,7 +116,7 @@ let parse_content content =
   let ido = request |> Util.member "id" |> Util.to_int_option in
   let method_name = request |> Util.member "method" |> Util.to_string in
   let params = request |> Util.member "params" in
-  (if ido = None then output_log (Noti request) else output_log (Req request));
+  if ido = None then output_log (Noti request) else output_log (Req request);
   (ido, method_name, params)
 
 (* 
@@ -126,14 +131,17 @@ let rec loop () =
       let ido, method_name, params = parse_content content in
       let id = Option.value ido ~default:(-1) in
       (match method_name with
-      | "initialize" -> on_initialize id; first := false
+      | "initialize" ->
+          on_initialize id;
+          first := false
       | "textDocument/didOpen" -> on_did_open params
       | "textDocument/didChange" -> on_did_change params
       | "textDocument/didClose" -> on_did_close params
       | "textDocument/hover" -> on_hover id params
-      | "shutdown" -> failwith ("wtf!!!")
+      | "shutdown" -> failwith "wtf!!!"
       | _ -> ());
-      flush_all (); loop ()
-  | _ -> failwith ("wtf?")
+      flush_all ();
+      loop ()
+  | _ -> failwith "wtf?"
 
 let () = loop ()
