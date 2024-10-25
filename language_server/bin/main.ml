@@ -41,6 +41,7 @@ let on_initialize id =
         ( "textDocumentSync",
           `Assoc [ ("openClose", `Bool true); ("change", `Int 1) ] );
         ("hoverProvider", `Bool true);
+        ("codeLensProvider", `Assoc [ ("resolveProvider", `Bool true) ]);
       ]
   in
   let response =
@@ -50,28 +51,25 @@ let on_initialize id =
   output_json response;
   output_log (Rspn response)
 
+let get_uri obj =
+  obj |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
+
 let on_did_open params =
-  let path =
-    params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
-  in
+  let path = get_uri params in
   let st =
     params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string
   in
   Hashtbl.add states path st
 
 let on_did_change params =
-  let path =
-    params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
-  in
+  let path = get_uri params in
   let changes = params |> Util.member "contentChanges" |> Util.to_list in
   match changes with
   | `String st :: _ -> Hashtbl.replace states path st
   | _ -> ()
 
 let on_did_close params =
-  let path =
-    params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
-  in
+  let path = get_uri params in
   Hashtbl.remove states path
 
 (* let get_token uri lnum cnum = let uri_len = String.length uri in let fpath =
@@ -79,8 +77,7 @@ let on_did_close params =
    let _ = input_line fin done in let line = input_line fin in line *)
 
 let on_hover id params =
-  (* let uri = params |> Util.member "textDocument" |> Util.member "uri" |>
-     Util.to_string in *)
+  (* let path = get_uri params in *)
   let lnum =
     params |> Util.member "position" |> Util.member "line" |> Util.to_int
   in
@@ -97,6 +94,33 @@ let on_hover id params =
 
   output_json response;
   output_log (Rspn response)
+
+(* TODO What should be the command of CodeLens? *)
+let on_code_lens id params =
+  (* let path = get_uri params in *)
+  let response =
+    `Assoc
+      [
+        ("id", `Int id);
+        ( "result",
+          `Assoc
+            [
+              ( "range",
+                `Assoc
+                  [
+                    ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
+                    ("end", `Assoc [ ("line", `Int 0); ("character", `Int 6) ]);
+                  ]
+              );
+              ( "command", `Assoc [ ("title", `String "typ"); ("command", `String "") ] )
+            ]
+        );
+      ]
+  in
+  
+  output_json response;
+  output_log (Rspn response)
+
 
 let read_header () =
   let header = input_line stdin in
@@ -119,11 +143,6 @@ let parse_content content =
   if ido = None then output_log (Noti request) else output_log (Req request);
   (ido, method_name, params)
 
-(* 
- * TODO
- * Yojson error is raised after the document is CHANGED!
- * Need to be debugged...
- *)
 let rec loop () =
   match read_header () with
   | Some content_len ->
@@ -138,6 +157,7 @@ let rec loop () =
       | "textDocument/didChange" -> on_did_change params
       | "textDocument/didClose" -> on_did_close params
       | "textDocument/hover" -> on_hover id params
+      | "textDocument/codeLens" -> on_code_lens id params
       | "shutdown" -> failwith "wtf!!!"
       | _ -> ());
       flush_all ();
