@@ -55,8 +55,11 @@ let on_did_open params =
 
 let on_did_change params =
   let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
-  let st = params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string in
-  Hashtbl.replace states path st
+  let changes = params |> Util.member "contentChanges" |> Util.to_list in
+  (match changes with
+  | (`String st) :: _ -> Hashtbl.replace states path st
+  | _ -> ()
+  )
 
 let on_did_close params =
   let path = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
@@ -73,7 +76,7 @@ let on_did_close params =
   line *)
   
 let on_hover id params = 
-  let uri = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in
+  (* let uri = params |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string in *)
   let lnum = params |> Util.member "position" |> Util.member "line" |> Util.to_int in
   let cnum = params |> Util.member "position" |> Util.member "character" |> Util.to_int in
   (* let token = get_token uri lnum cnum in *)
@@ -103,19 +106,13 @@ let read_content clen =
   let _ = input_line stdin in
   really_input_string stdin clen
 
-let id_of_jsont obj =
-  match obj with
-  | `Null -> -1
-  | obj -> obj |> Util.to_int
-
 let parse_content content =
   let request = from_string content in
-  let pre_id = request |> Util.member "id" in
-  let id = id_of_jsont pre_id in
+  let ido = request |> Util.member "id" |> Util.to_int_option in
   let method_name = request |> Util.member "method" |> Util.to_string in
   let params = request |> Util.member "params" in
-  (if id = -1 then output_log (Noti request) else output_log (Req request));
-  (id, method_name, params)
+  (if ido = None then output_log (Noti request) else output_log (Req request));
+  (ido, method_name, params)
 
 (* 
  * TODO
@@ -126,13 +123,15 @@ let rec loop () =
   match read_header () with
   | Some content_len ->
       let content = read_content content_len in
-      let id, method_name, params = parse_content content in
+      let ido, method_name, params = parse_content content in
+      let id = Option.value ido ~default:(-1) in
       (match method_name with
       | "initialize" -> on_initialize id; first := false
       | "textDocument/didOpen" -> on_did_open params
       | "textDocument/didChange" -> on_did_change params
       | "textDocument/didClose" -> on_did_close params
       | "textDocument/hover" -> on_hover id params
+      | "shutdown" -> failwith ("wtf!!!")
       | _ -> ());
       flush_all (); loop ()
   | _ -> failwith ("wtf?")
