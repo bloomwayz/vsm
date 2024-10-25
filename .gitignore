@@ -4,3 +4,8 @@ node_modules
 _build
 client/out
 language_server/lib/simple_checker.ml
+tsconfig.tsbuildinfo
+_build/log
+log.txt
+language_server.opam
+language_server.install
