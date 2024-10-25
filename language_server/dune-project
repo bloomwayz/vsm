@@ -1,13 +1,15 @@
 (lang dune 3.14)
 
+(using menhir 3.0)
+
 (name language_server)
 
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github bloomwayz/vsm))
 
-(authors "Author Name")
+(authors "PARK Junyoung")
 
 (maintainers "Maintainer Name")
 
@@ -17,10 +19,19 @@
 
 (package
  (name language_server)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml dune yojson)
- (tags
-  (topics "to describe" your project)))
+ (synopsis "Language M")
+ (description "Language M")
+ (depends
+  (core
+   (>= 0.17.1))
+  (core_unix
+   (>= 0.17.0))
+  (string_dict
+   (>= 0.17.0))
+  (ppx_jane
+   (>= 0.17.0))
+  (menhir
+   (>= 20231231)))
+ (tags ("Programming Language")))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project
