@@ -10,4 +10,4 @@ log.txt
 language_server.opam
 language_server.install
 syntaxes
-language-configuraion.json
+language-configuration.json
