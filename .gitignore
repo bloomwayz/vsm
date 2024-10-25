@@ -3,5 +3,4 @@
 node_modules
 _build
 client/out
-./lib/simple_checker.ml
-./lib/simple_checker.mli
+language_server/lib/simple_checker.ml
