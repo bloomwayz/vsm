@@ -1,4 +1,5 @@
 open Yojson.Safe
+open Language_server
 
 type jsonlog =
   | Req of Yojson.Safe.t
@@ -65,7 +66,8 @@ let on_did_change params =
   let path = get_uri params in
   let changes = params |> Util.member "contentChanges" |> Util.to_list in
   match changes with
-  | `String st :: _ -> Hashtbl.replace states path st
+  | `Assoc [ ("text", `String st) ] :: _ ->
+    Hashtbl.replace states path st
   | _ -> ()
 
 let on_did_close params =
@@ -77,16 +79,33 @@ let on_did_close params =
    let _ = input_line fin done in let line = input_line fin in line *)
 
 let on_hover id params =
-  (* let path = get_uri params in *)
+  let path = get_uri params in
+  let path_len = String.length path in
+  let filename = String.sub path 8 (path_len - 8) in
+  let sto = Hashtbl.find_opt states path in
+  let st =
+    match sto with
+    | Some st' -> st'
+    | None -> failwith "Lookup Failure..."
+  in
+
+  (*
   let lnum =
     params |> Util.member "position" |> Util.member "line" |> Util.to_int
   in
   let cnum =
     params |> Util.member "position" |> Util.member "character" |> Util.to_int
   in
+  let token = get_token uri lnum cnum in
+  *)
 
-  (* let token = get_token uri lnum cnum in *)
-  let info = Printf.sprintf "Ln %d, Col %d" lnum cnum in
+  let pgm = M.get_program_from_string filename st in
+  let info =
+    match Simple_checker.check pgm with
+    | infered -> Simple_checker.string_of_ty infered
+    | exception _ -> "type check failure"
+  in
+
   let response =
     `Assoc
       [ ("id", `Int id); ("result", `Assoc [ ("contents", `String info) ]) ]
