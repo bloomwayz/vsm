@@ -74,30 +74,83 @@ let on_did_close params =
   let path = get_uri params in
   Hashtbl.remove states path
 
-(* let get_token uri lnum cnum = let uri_len = String.length uri in let fpath =
-   String.sub uri 7 uri_len in let fin = open_in fpath in for i = 1 to lnum do
-   let _ = input_line fin done in let line = input_line fin in line *)
+let get_state path =
+  match Hashtbl.find_opt states path with
+  | Some state -> state
+  | None -> failwith "Lookup Failure..."
+
+(* TODO
+   impliment via Regex!
+   refer to vscoq/documentmanager
+*)
+
+let word_at_position line cnum =
+  let back_reg = Str.regexp {|[^a-zA-Z0-9'"][a-zA-Z0-9'"]|} in
+  let start_idx = match (Str.search_backward back_reg line cnum) with
+    | result -> result + 1
+    | exception Not_found -> 0
+  in
+
+  let forward_reg = Str.regexp {|[a-zA-Z0-9'"][^a-zA-Z0-9'"]|} in
+  let end_idx =
+    match (Str.search_forward forward_reg line cnum) with
+    | result -> result + 1
+    | exception Not_found -> String.length line
+  in
+
+  String.sub line start_idx (end_idx - start_idx)
+
+(* TODO
+   Need to be sophisticated!
+   There are so many corner cases...
+*)
+let get_token state lnum cnum =
+  let lines = String.split_on_char '\n' state in
+  let line = List.nth lines lnum in
+  let comment_reg = Str.regexp {|^\s*(\*\|\*)\s*$|} in
+
+  if Str.string_match comment_reg line 0 then ""
+  else (
+    let char_at_cnum = line.[cnum] in
+    match char_at_cnum with
+    | ' '| ',' | '.' | ';' -> ""
+    | '+' | '-' | '!' -> Printf.sprintf "%c" char_at_cnum
+    | '=' -> (
+      if line.[cnum-1] = ':' then ":="
+      else if line.[cnum+1] = '>' then "=>"
+      else "="
+    )
+    | ':' -> ":="
+    | '>' -> "=>"
+    | _ -> word_at_position line cnum
+  )
 
 let on_hover id params =
   let path = get_uri params in
-  let path_len = String.length path in
-  let filename = String.sub path 8 (path_len - 8) in
-  let sto = Hashtbl.find_opt states path in
-  let st =
-    match sto with
-    | Some st' -> st'
-    | None -> failwith "Lookup Failure..."
-  in
+  let st = get_state path in
 
-  (*
   let lnum =
     params |> Util.member "position" |> Util.member "line" |> Util.to_int
   in
   let cnum =
     params |> Util.member "position" |> Util.member "character" |> Util.to_int
   in
-  let token = get_token uri lnum cnum in
-  *)
+  let token = get_token st lnum cnum in
+
+  let response =
+    `Assoc
+      [ ("id", `Int id); ("result", `Assoc [ ("contents", `String token) ]) ]
+  in
+
+  output_json response;
+  output_log (Rspn response)
+
+(* TODO What should be the command of CodeLens? *)
+let on_code_lens id params =
+  let path = get_uri params in
+  let path_len = String.length path in
+  let filename = String.sub path 8 (path_len - 8) in
+  let st = get_state path in
 
   let pgm = M.get_program_from_string filename st in
   let info =
@@ -106,33 +159,22 @@ let on_hover id params =
     | exception _ -> "type check failure"
   in
 
-  let response =
-    `Assoc
-      [ ("id", `Int id); ("result", `Assoc [ ("contents", `String info) ]) ]
+  let range = `Assoc [
+    ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
+    ("end", `Assoc [ ("line", `Int 0); ("character", `Int 6) ]);
+  ]
+  in
+  let command = `Assoc [
+    ("title", `String info); ("command", `String "")
+  ]
   in
 
-  output_json response;
-  output_log (Rspn response)
-
-(* TODO What should be the command of CodeLens? *)
-let on_code_lens id params =
-  (* let path = get_uri params in *)
   let response =
     `Assoc
       [
         ("id", `Int id);
         ( "result",
-          `Assoc
-            [
-              ( "range",
-                `Assoc
-                  [
-                    ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
-                    ("end", `Assoc [ ("line", `Int 0); ("character", `Int 6) ]);
-                  ]
-              );
-              ( "command", `Assoc [ ("title", `String "typ"); ("command", `String "") ] )
-            ]
+          `Assoc [ ("range", range); ("command", command) ]
         );
       ]
   in
