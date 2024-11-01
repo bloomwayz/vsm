@@ -79,11 +79,6 @@ let get_state path =
   | Some state -> state
   | None -> failwith "Lookup Failure..."
 
-(* TODO
-   impliment via Regex!
-   refer to vscoq/documentmanager
-*)
-
 let word_at_position line cnum =
   let back_reg = Str.regexp {|[^a-zA-Z0-9'"][a-zA-Z0-9'"]|} in
   let start_idx = match (Str.search_backward back_reg line cnum) with
@@ -145,7 +140,7 @@ let on_hover id params =
   output_json response;
   output_log (Rspn response)
 
-(* TODO What should be the command of CodeLens? *)
+
 let on_code_lens id params =
   let path = get_uri params in
   let path_len = String.length path in
@@ -161,21 +156,19 @@ let on_code_lens id params =
 
   let range = `Assoc [
     ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
-    ("end", `Assoc [ ("line", `Int 0); ("character", `Int 6) ]);
+    ("end", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
   ]
   in
-  let command = `Assoc [
-    ("title", `String info); ("command", `String "")
-  ]
+  let command = `Assoc [ ("title", `String info) ]
+  in
+  let result = `Assoc [ ("range", range); ("command", command) ]
   in
 
   let response =
     `Assoc
       [
         ("id", `Int id);
-        ( "result",
-          `Assoc [ ("range", range); ("command", command) ]
-        );
+        ( "result", `List [result] );
       ]
   in
   
@@ -219,6 +212,7 @@ let rec loop () =
       | "textDocument/didClose" -> on_did_close params
       | "textDocument/hover" -> on_hover id params
       | "textDocument/codeLens" -> on_code_lens id params
+      | "codeLens/resolve" -> failwith "who r u?"
       | "shutdown" -> failwith "wtf!!!"
       | _ -> ());
       flush_all ();
