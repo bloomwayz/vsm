@@ -22,6 +22,8 @@
  (synopsis "Language M")
  (description "Language M")
  (depends
+  ocaml
+  dune
   (core
    (>= 0.17.1))
   (core_unix

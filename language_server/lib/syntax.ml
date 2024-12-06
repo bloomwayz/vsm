@@ -1,7 +1,15 @@
 open! Core
 (** Definition of M's syntax, type and interpreter *)
 
-type expr =
+module Location = struct
+  open Lexing
+
+  type t = { loc_start : position; loc_end : position; loc_ghost : bool }
+end
+
+type expr = { location : Location.t; desc : desc }
+
+and desc =
   | Const of const
   | Var of id
   | Fn of id * expr

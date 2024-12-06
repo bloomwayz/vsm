@@ -66,8 +66,7 @@ let on_did_change params =
   let path = get_uri params in
   let changes = params |> Util.member "contentChanges" |> Util.to_list in
   match changes with
-  | `Assoc [ ("text", `String st) ] :: _ ->
-    Hashtbl.replace states path st
+  | `Assoc [ ("text", `String st) ] :: _ -> Hashtbl.replace states path st
   | _ -> ()
 
 let on_did_close params =
@@ -81,44 +80,40 @@ let get_state path =
 
 let word_at_position line cnum =
   let back_reg = Str.regexp {|[^a-zA-Z0-9'"][a-zA-Z0-9'"]|} in
-  let start_idx = match (Str.search_backward back_reg line cnum) with
+  let start_idx =
+    match Str.search_backward back_reg line cnum with
     | result -> result + 1
     | exception Not_found -> 0
   in
 
   let forward_reg = Str.regexp {|[a-zA-Z0-9'"][^a-zA-Z0-9'"]|} in
   let end_idx =
-    match (Str.search_forward forward_reg line cnum) with
+    match Str.search_forward forward_reg line cnum with
     | result -> result + 1
     | exception Not_found -> String.length line
   in
 
   String.sub line start_idx (end_idx - start_idx)
 
-(* TODO
-   Need to be sophisticated!
-   There are so many corner cases...
-*)
+(* TODO Need to be sophisticated! There are so many corner cases... *)
 let get_token state lnum cnum =
   let lines = String.split_on_char '\n' state in
   let line = List.nth lines lnum in
   let comment_reg = Str.regexp {|^\s*(\*\|\*)\s*$|} in
 
   if Str.string_match comment_reg line 0 then ""
-  else (
+  else
     let char_at_cnum = line.[cnum] in
     match char_at_cnum with
-    | ' '| ',' | '.' | ';' -> ""
+    | ' ' | ',' | '.' | ';' -> ""
     | '+' | '-' | '!' -> Printf.sprintf "%c" char_at_cnum
-    | '=' -> (
-      if line.[cnum-1] = ':' then ":="
-      else if line.[cnum+1] = '>' then "=>"
-      else "="
-    )
+    | '=' ->
+        if line.[cnum - 1] = ':' then ":="
+        else if line.[cnum + 1] = '>' then "=>"
+        else "="
     | ':' -> ":="
     | '>' -> "=>"
     | _ -> word_at_position line cnum
-  )
 
 let on_hover id params =
   let path = get_uri params in
@@ -140,6 +135,47 @@ let on_hover id params =
   output_json response;
   output_log (Rspn response)
 
+let publish_diag path lnum cnum =
+  (* let st = get_state path in let token = get_token st lnum cnum in *)
+  let lnum = 9 in
+  let cnum = 4 in
+
+  let range =
+    `Assoc
+      [
+        ( "start",
+          `Assoc [ ("line", `Int (lnum - 1)); ("character", `Int (cnum - 1)) ]
+        );
+        ( "end",
+          `Assoc [ ("line", `Int (lnum - 1)); ("character", `Int (cnum - 1)) ]
+        );
+      ]
+  in
+
+  let diagnostic =
+    `Assoc
+      [
+        ("range", range);
+        ("severity", `Int 1);
+        ("message", `String "Parsing Error");
+      ]
+  in
+
+  let params =
+    `Assoc [ ("uri", `String path); ("diagnostics", `List [ diagnostic ]) ]
+  in
+
+  let notification =
+    `Assoc
+      [
+        ("jsonrpc", `String "2.0");
+        ("method", `String "textDocument/publishDiagnostics");
+        ("params", params);
+      ]
+  in
+
+  output_json notification;
+  output_log (Noti notification)
 
 let on_code_lens id params =
   let path = get_uri params in
@@ -147,34 +183,29 @@ let on_code_lens id params =
   let filename = String.sub path 8 (path_len - 8) in
   let st = get_state path in
 
-  let pgm = M.get_program_from_string filename st in
-  let info =
-    match Simple_checker.check pgm with
-    | infered -> Simple_checker.string_of_ty infered
-    | exception _ -> "type check failure"
-  in
+  try
+    let prog = M.get_program_from_string filename st in
+    let info =
+      match Simple_checker.check prog with
+      | infered -> Simple_checker.string_of_ty infered
+      | exception _ -> "type check failure"
+    in
 
-  let range = `Assoc [
-    ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
-    ("end", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
-  ]
-  in
-  let command = `Assoc [ ("title", `String info) ]
-  in
-  let result = `Assoc [ ("range", range); ("command", command) ]
-  in
+    let range =
+      `Assoc
+        [
+          ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
+          ("end", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
+        ]
+    in
+    let command = `Assoc [ ("title", `String info) ] in
+    let result = `Assoc [ ("range", range); ("command", command) ] in
 
-  let response =
-    `Assoc
-      [
-        ("id", `Int id);
-        ( "result", `List [result] );
-      ]
-  in
-  
-  output_json response;
-  output_log (Rspn response)
+    let response = `Assoc [ ("id", `Int id); ("result", `List [ result ]) ] in
 
+    output_json response;
+    output_log (Rspn response)
+  with M.SyntaxError (lnum, cnum) -> publish_diag path (lnum - 1) cnum
 
 let read_header () =
   let header = input_line stdin in
