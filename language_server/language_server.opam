@@ -16,6 +16,8 @@ depends: [
   "core_unix" {>= "0.17.0"}
   "string_dict" {>= "0.17.0"}
   "ppx_jane" {>= "0.17.0"}
+  "yojson"
+  "string_dict"
   "menhir" {>= "20231231"}
   "odoc" {with-doc}
 ]
