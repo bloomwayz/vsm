@@ -10,15 +10,16 @@ homepage: "https://github.com/bloomwayz/vsm"
 doc: "https://url/to/documentation"
 bug-reports: "https://github.com/bloomwayz/vsm/issues"
 depends: [
-  "dune" {>= "3.16"}
   "ocaml"
+  "dune" {>= "3.16"}
+  "yojson"
   "ocaml-base-compiler" {= "5.1.1"}
   "ocaml-compiler-libs"
   "core" {>= "0.17.1"}
   "core_unix" {>= "0.17.0"}
   "string_dict" {>= "0.17.0"}
   "ppx_jane" {>= "0.17.0"}
-  "menhir" {>= "20231231"}
+  "menhir" {>= "3.0"}
   "odoc" {with-doc}
 ]
 build: [

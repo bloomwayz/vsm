@@ -1,2 +1,11 @@
 (library
- (name server))
+ (name server)
+ (preprocess
+  (pps ppx_jane))
+ (libraries ocaml-compiler-libs.common core core_unix.command_unix core_unix.filename_unix string_dict))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser)
+ (flags --dump))

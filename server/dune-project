@@ -1,5 +1,7 @@
 (lang dune 3.16)
 
+(using menhir 3.0)
+
 (name server)
 
 (generate_opam_files true)
@@ -21,6 +23,8 @@
  (description "M Langauge Server")
  (depends
   ocaml
+  dune
+  yojson
   (ocaml-base-compiler
     (= 5.1.1))
   ocaml-compiler-libs
@@ -33,5 +37,5 @@
   (ppx_jane
    (>= 0.17.0))
   (menhir
-   (>= 20231231)))
+   (>= 3.0)))
  (tags ("Programming Language")))
