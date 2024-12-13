@@ -1,0 +1,37 @@
+(lang dune 3.16)
+
+(name server)
+
+(generate_opam_files true)
+
+(source
+ (github bloomwayz/vsm))
+
+(authors "Junyoung Park")
+
+(maintainers "Junyoung Park")
+
+(license LICENSE)
+
+(documentation https://url/to/documentation)
+
+(package
+ (name server)
+ (synopsis "M Langauge Server")
+ (description "M Langauge Server")
+ (depends
+  ocaml
+  (ocaml-base-compiler
+    (= 5.1.1))
+  ocaml-compiler-libs
+  (core
+   (>= 0.17.1))
+  (core_unix
+   (>= 0.17.0))
+  (string_dict
+   (>= 0.17.0))
+  (ppx_jane
+   (>= 0.17.0))
+  (menhir
+   (>= 20231231)))
+ (tags ("Programming Language")))
