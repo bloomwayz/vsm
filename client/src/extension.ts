@@ -11,20 +11,8 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-	// commands.executeCommand('setContext', 'inCoqProject', true);
-	const command = '/Users/young/Desktop/vsm/language_server/_build/default/bin/main.exe';
-	// const command = path.join('_build', 'default', 'language_server', 'bin', 'main.exe');
-	// context.asAbsolutePath(
-	// 	path.join('_build', 'default', 'language_server', 'bin', 'main.exe')
-	// );
+	const command = '/Users/young/Desktop/vsm/server/_build/default/bin/main.exe';
 
-	// If the extension is launched in debug mode then the debug server options are used
-	// Otherwise the run options are used
-
-	// const ServerOptions = Executable | {
-	// 	run: Executable;
-	// 	debug: Executable;
-	// }
 	const serverOptions: ServerOptions = {
 		run: { command, transport: TransportKind.stdio },
 		debug: { command, transport: TransportKind.stdio }

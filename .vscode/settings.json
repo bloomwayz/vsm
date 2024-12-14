@@ -7,6 +7,6 @@
 	},
 	"ocaml.sandbox": {
 		"kind": "opam",
-		"switch": "${workspaceFolder:vsm}/language_server"
+		"switch": "${workspaceFolder:vsm}/server"
 	}
 }

@@ -1,5 +1,5 @@
 open Yojson.Safe
-open Language_server
+open Server
 
 type jsonlog =
   | Req of Yojson.Safe.t
@@ -19,7 +19,7 @@ let string_of_jsonlog jlog =
 let output_log newlog =
   let strlog = string_of_jsonlog newlog in
   log_list := !log_list @ [ strlog ];
-  let oc = open_out "/Users/young/Desktop/vsm/language_server/log.txt" in
+  let oc = open_out "/Users/young/Desktop/vsm/server/log.txt" in
   let rec output_log_inner lst =
     match lst with
     | [] -> ()
