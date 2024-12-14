@@ -1,3 +1,6 @@
+server/lib/simple_checker.ml
+log.txt
+
 # Created by https://www.toptal.com/developers/gitignore/api/macos,node,ocaml
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,node,ocaml
 
