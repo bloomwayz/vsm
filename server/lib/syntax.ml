@@ -1,9 +1,9 @@
 open! Base
 (** Definition of M's syntax, type and interpreter *)
 
-type expr = (* { location : Location.t; desc : desc }
+type expr = { desc: desc; loc: Location.t }
 
-and desc = *)
+and desc =
   | Const of const
   | Var of id
   | Fn of id * expr
@@ -37,3 +37,5 @@ type typ =
   | T_pair of typ * typ
   | T_loc of typ
   | T_arrow of typ * typ
+
+let mk ~loc desc = { desc; loc } 

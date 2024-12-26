@@ -115,9 +115,59 @@ let get_token state lnum cnum =
     | '>' -> "=>"
     | _ -> word_at_position line cnum
 
+(* let rec get_token_by_ast (prog : Syntax.expr) (lnum : int) (cnum : int) = 
+  let (f1, l1, c1) = Location.get_pos_info prog.loc.loc_start in
+  let (f2, l2, c2) = Location.get_pos_info prog.loc.loc_end in
+  let msg = Printf.sprintf "%d %d ~ %d %d\n" l1 c1 l2 c2 in
+  failwith msg *)
+
+let rec get_token_by_ast exp lnum cnum =
+  let lnum = lnum + 1 in
+  let cnum = cnum + 1 in
+
+  let in_range (exp : Syntax.expr) =
+    let loc = exp.loc in
+    let _, sline, schar = Location.get_pos_info loc.loc_start in
+    let _, eline, echar = Location.get_pos_info loc.loc_end in
+    if sline <= lnum && lnum <= eline && schar <= cnum && cnum <= echar then true
+    else false
+  in
+
+  (* let token_at_pos (loc : Location.t) =
+    let (f1, l1, c1) = Location.get_pos_info loc.loc_start in
+    let (f2, l2, c2) = Location.get_pos_info loc.loc_end in
+    let msg = Printf.sprintf "%d %d ~ %d %d\n" l1 c1 l2 c2 in
+    failwith msg
+  in *)
+
+  let subexps = ref [] in
+
+  let rec traverse_ast (exp : Syntax.expr) =
+    match exp.desc with
+    | Const _ | Var _ | Read ->
+      subexps := exp :: !subexps
+    | Fn (_, e) | Write e | Fst e | Snd e | Malloc e | Deref e ->
+      subexps := exp :: !subexps; traverse_ast e
+    | App (e1, e2) | Bop (_, e1, e2) | Assign (e1, e2) | Seq (e1, e2) | Pair (e1, e2)
+    | Let (Val (_, e1), e2) | Let (Rec (_, _, e1), e2) ->
+      subexps := exp :: !subexps; traverse_ast e1; traverse_ast e2
+    | If (e1, e2, e3) ->
+      subexps := exp :: !subexps; traverse_ast e1; traverse_ast e2; traverse_ast e3
+  in
+
+  let _ = traverse_ast exp in
+  let result = List.filter in_range !subexps in
+
+  match result with
+  | [] -> None
+  | x :: xs -> Some x
+
+
 let on_hover id params =
   let path = get_uri params in
+  let path_len = String.length path in
   let st = get_state path in
+  let filename = String.sub path 8 (path_len - 8) in
 
   let lnum =
     params |> Util.member "position" |> Util.member "line" |> Util.to_int
@@ -125,11 +175,23 @@ let on_hover id params =
   let cnum =
     params |> Util.member "position" |> Util.member "character" |> Util.to_int
   in
-  let token = get_token st lnum cnum in
+
+  let ast = M.get_program_from_string filename st in
+  let tko = get_token_by_ast ast lnum cnum in
+  let info =
+    match tko with
+    | Some texp ->
+      (match Simple_checker.check texp with
+      | infered -> Simple_checker.string_of_ty infered
+      | exception _ -> "type check failure")
+    | None -> "token not found"
+  in
+
+  (* let token = get_token st lnum cnum in *)
 
   let response =
     `Assoc
-      [ ("id", `Int id); ("result", `Assoc [ ("contents", `String token) ]) ]
+      [ ("id", `Int id); ("result", `Assoc [ ("contents", `String info) ]) ]
   in
 
   output_json response;
