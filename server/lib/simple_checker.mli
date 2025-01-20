@@ -5,5 +5,6 @@
 
 open Syntax
 
-val check : expr -> typ
+val check_top : expr -> typ
+val check_sub : expr -> expr -> typ
 val string_of_ty : typ -> string

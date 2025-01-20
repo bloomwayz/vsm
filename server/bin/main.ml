@@ -233,7 +233,7 @@ let on_hover id params =
       match subexp_at_pos ast lnum cnum with
       | Some texp ->
           let info =
-            match Simple_checker.check texp with
+            match Simple_checker.check_sub ast texp with
             | infered -> Simple_checker.string_of_ty infered
             | exception _ -> "type check failure"
           in
@@ -273,7 +273,7 @@ let on_code_lens id params =
   let info =
     match st with
     | Ast ast -> (
-        match Simple_checker.check ast with
+        match Simple_checker.check_top ast with
         | infered -> Simple_checker.string_of_ty infered
         | exception _ -> "type check failure")
     | Fail _ -> ""
@@ -338,12 +338,8 @@ let produce_stokens (exp : Syntax.expr) =
   let append_token (loc : Location.t) (tokenlen : int) (tokentype : int)  =
     let _, sline, schar = Location.get_pos_info loc.loc_start in
     let _, eline, echar = Location.get_pos_info loc.loc_end in
-    let encoded =
-      if tokenlen = -1 then
-        [ sline - 1; schar; echar - schar + 1; tokentype; 0; ]
-      else
-        [ sline - 1; schar; tokenlen; tokentype; 0; ]
-    in
+    let tokenlen = echar - schar in
+    let encoded = [ sline - 1; schar; tokenlen; tokentype; 0; ] in
     stokens := !stokens @ encoded
   in
 
@@ -416,7 +412,8 @@ let on_tokens id params =
 
   match st with
   | Ast ast ->
-    let stokens = produce_stokens ast in
+    (* let stokens = produce_stokens ast in *)
+    let stokens = [3; 5; 3; 0; 3; 0; 5; 4; 1; 0; 3; 2; 7; 2; 0] in
     let data = List.map (fun x -> `Int x) stokens in
     let response =
       `Assoc
@@ -431,8 +428,6 @@ let on_tokens id params =
     in
     output_json response;
     output_log (Rspn response)
-
-
 
 let read_header () =
   let header = input_line stdin in
