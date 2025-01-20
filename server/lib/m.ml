@@ -4,7 +4,7 @@ open Lexer
 open Parser
 open Syntax
 
-exception SyntaxError of int * int
+exception SyntaxError of string * int * int
 
 let print_position (outx : Out_channel.t) (lexbuf : Lexing.lexbuf) : unit =
   let open Lexing in
@@ -41,7 +41,11 @@ let get_program_from_string (filename : string) (state : string) : Syntax.expr =
   | exception Parser.Error ->
       let open Lexing in
       let pos = lexbuf.lex_curr_p in
-      raise (SyntaxError (pos.pos_lnum, pos.pos_cnum - pos.pos_bol + 1))
+      raise (SyntaxError ("Parsing Error", pos.pos_lnum, pos.pos_cnum - pos.pos_bol + 1))
+  | exception Lexer.SyntaxError msg ->
+      let open Lexing in
+      let pos = lexbuf.lex_curr_p in
+      raise (SyntaxError (msg, pos.pos_lnum, pos.pos_cnum - pos.pos_bol + 1))
 
 let command : Command.t =
   Command.basic ~summary:"The Language M"

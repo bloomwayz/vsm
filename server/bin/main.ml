@@ -6,9 +6,12 @@ type jsonlog =
   | Rspn of Yojson.Safe.t
   | Noti of Yojson.Safe.t
 
+type state = Ast of Syntax.expr | Fail of string * int * int
+
 let first = ref true
-let states : (string, string) Hashtbl.t = Hashtbl.create 39
+let states : (string, state) Hashtbl.t = Hashtbl.create 39
 let log_list = ref []
+let current_id = ref 0
 
 let string_of_jsonlog jlog =
   match jlog with
@@ -36,13 +39,45 @@ let output_json obj =
   Printf.printf "Content-Length: %d\r\n\r\n%s" size msg
 
 let on_initialize id =
+  let stoken_list =
+    `List
+      [
+        `String "namespace";
+        `String "variable";
+        `String "keyword";
+        `String "string";
+        `String "number";
+        `String "operator";
+      ]
+  in
+  let modifier_list = `List [] in
+
   let capabilities =
     `Assoc
       [
         ( "textDocumentSync",
           `Assoc [ ("openClose", `Bool true); ("change", `Int 1) ] );
+        ( "semanticTokensProvider",
+          `Assoc
+            [
+              ( "legend",
+                `Assoc
+                  [
+                    ("tokenTypes", stoken_list);
+                    ("tokenModifiers", modifier_list);
+                  ] );
+              ("full", `Bool true);
+            ] );
+        ("documentHighlightProvider", `Bool true);
         ("hoverProvider", `Bool true);
         ("codeLensProvider", `Assoc [ ("resolveProvider", `Bool true) ]);
+        ( "diagnosticProvider",
+          `Assoc
+            [
+              ("interFileDependencies", `Bool false);
+              ("workspaceDiagnostics", `Bool true);
+            ] );
+        ("signatureHelpProvider", `Bool true)
       ]
   in
   let response =
@@ -55,19 +90,55 @@ let on_initialize id =
 let get_uri obj =
   obj |> Util.member "textDocument" |> Util.member "uri" |> Util.to_string
 
+let refresh_diagnostic () =
+  let _ = incr current_id in
+  let id = !current_id in
+  let request =
+    `Assoc
+      [
+        ("jsonrpc", `String "2.0");
+        ("id", `Int id);
+        ("method", `String "workspace/diagnostic/refresh");
+      ]
+  in
+
+  output_json request;
+  output_log (Req request)
+
 let on_did_open params =
   let path = get_uri params in
-  let st =
+  let path_len = String.length path in
+  let filename = String.sub path 8 (path_len - 8) in
+  let text =
     params |> Util.member "textDocument" |> Util.member "text" |> Util.to_string
   in
+
+  let st =
+    try Ast (M.get_program_from_string filename text)
+    with M.SyntaxError (msg, lnum, cnum) -> Fail (msg, lnum - 1, cnum)
+  in
+
   Hashtbl.add states path st
 
 let on_did_change params =
   let path = get_uri params in
+  let path_len = String.length path in
+  let filename = String.sub path 8 (path_len - 8) in
   let changes = params |> Util.member "contentChanges" |> Util.to_list in
-  match changes with
-  | `Assoc [ ("text", `String st) ] :: _ -> Hashtbl.replace states path st
-  | _ -> ()
+
+  let text =
+    match changes with
+    | `Assoc [ ("text", `String change) ] :: _ -> change
+    | _ -> ""
+  in
+
+  let st =
+    try Ast (M.get_program_from_string filename text)
+    with M.SyntaxError (msg, lnum, cnum) -> Fail (msg, lnum - 1, cnum)
+  in
+
+  Hashtbl.replace states path st;
+  refresh_diagnostic ()
 
 let on_did_close params =
   let path = get_uri params in
@@ -78,96 +149,77 @@ let get_state path =
   | Some state -> state
   | None -> failwith "Lookup Failure..."
 
-let word_at_position line cnum =
-  let back_reg = Str.regexp {|[^a-zA-Z0-9'"][a-zA-Z0-9'"]|} in
-  let start_idx =
-    match Str.search_backward back_reg line cnum with
-    | result -> result + 1
-    | exception Not_found -> 0
-  in
-
-  let forward_reg = Str.regexp {|[a-zA-Z0-9'"][^a-zA-Z0-9'"]|} in
-  let end_idx =
-    match Str.search_forward forward_reg line cnum with
-    | result -> result + 1
-    | exception Not_found -> String.length line
-  in
-
-  String.sub line start_idx (end_idx - start_idx)
-
-(* TODO Need to be sophisticated! There are so many corner cases... *)
-let get_token state lnum cnum =
-  let lines = String.split_on_char '\n' state in
-  let line = List.nth lines lnum in
-  let comment_reg = Str.regexp {|^\s*(\*\|\*)\s*$|} in
-
-  if Str.string_match comment_reg line 0 then ""
-  else
-    let char_at_cnum = line.[cnum] in
-    match char_at_cnum with
-    | ' ' | ',' | '.' | ';' -> ""
-    | '+' | '-' | '!' -> Printf.sprintf "%c" char_at_cnum
-    | '=' ->
-        if line.[cnum - 1] = ':' then ":="
-        else if line.[cnum + 1] = '>' then "=>"
-        else "="
-    | ':' -> ":="
-    | '>' -> "=>"
-    | _ -> word_at_position line cnum
-
-(* let rec get_token_by_ast (prog : Syntax.expr) (lnum : int) (cnum : int) = 
-  let (f1, l1, c1) = Location.get_pos_info prog.loc.loc_start in
-  let (f2, l2, c2) = Location.get_pos_info prog.loc.loc_end in
-  let msg = Printf.sprintf "%d %d ~ %d %d\n" l1 c1 l2 c2 in
-  failwith msg *)
-
-let rec get_token_by_ast exp lnum cnum =
+let in_range (lnum : int) (cnum : int) (exp : Syntax.expr) =
   let lnum = lnum + 1 in
   let cnum = cnum + 1 in
 
-  let in_range (exp : Syntax.expr) =
-    let loc = exp.loc in
-    let _, sline, schar = Location.get_pos_info loc.loc_start in
-    let _, eline, echar = Location.get_pos_info loc.loc_end in
-    if sline <= lnum && lnum <= eline && schar <= cnum && cnum <= echar then true
-    else false
-  in
+  let loc = exp.loc in
+  let _, sline, schar = Location.get_pos_info loc.loc_start in
+  let _, eline, echar = Location.get_pos_info loc.loc_end in
 
-  (* let token_at_pos (loc : Location.t) =
-    let (f1, l1, c1) = Location.get_pos_info loc.loc_start in
-    let (f2, l2, c2) = Location.get_pos_info loc.loc_end in
-    let msg = Printf.sprintf "%d %d ~ %d %d\n" l1 c1 l2 c2 in
-    failwith msg
-  in *)
+  if sline <= lnum && lnum <= eline && schar <= cnum && cnum <= echar then true
+  else false
 
+let gen_range (loc : Location.t) =
+  let _, l1, c1 = Location.get_pos_info loc.loc_start in
+  let _, l2, c2 = Location.get_pos_info loc.loc_end in
+
+  let l1, l2 = (l1 - 1, l2 - 1) in
+
+  let start_pos = `Assoc [ ("line", `Int l1); ("character", `Int c1) ] in
+  let end_pos = `Assoc [ ("line", `Int l2); ("character", `Int c2) ] in
+
+  `Assoc [ ("start", start_pos); ("end", end_pos) ]
+
+let rec subexp_at_pos exp lnum cnum =
   let subexps = ref [] in
 
   let rec traverse_ast (exp : Syntax.expr) =
     match exp.desc with
-    | Const _ | Var _ | Read ->
-      subexps := exp :: !subexps
+    | Const _ | Var _ | Read -> subexps := exp :: !subexps
     | Fn (_, e) | Write e | Fst e | Snd e | Malloc e | Deref e ->
-      subexps := exp :: !subexps; traverse_ast e
-    | App (e1, e2) | Bop (_, e1, e2) | Assign (e1, e2) | Seq (e1, e2) | Pair (e1, e2)
-    | Let (Val (_, e1), e2) | Let (Rec (_, _, e1), e2) ->
-      subexps := exp :: !subexps; traverse_ast e1; traverse_ast e2
+        subexps := exp :: !subexps;
+        traverse_ast e
+    | App (e1, e2)
+    | Bop (_, e1, e2)
+    | Assign (e1, e2)
+    | Seq (e1, e2)
+    | Pair (e1, e2)
+    | Let (Val (_, e1), e2)
+    | Let (Rec (_, _, e1), e2) ->
+        subexps := exp :: !subexps;
+        traverse_ast e1;
+        traverse_ast e2
     | If (e1, e2, e3) ->
-      subexps := exp :: !subexps; traverse_ast e1; traverse_ast e2; traverse_ast e3
+        subexps := exp :: !subexps;
+        traverse_ast e1;
+        traverse_ast e2;
+        traverse_ast e3
   in
 
   let _ = traverse_ast exp in
-  let result = List.filter in_range !subexps in
+  let result = List.filter (in_range lnum cnum) !subexps in
 
-  match result with
-  | [] -> None
-  | x :: xs -> Some x
+  match result with [] -> None | x :: xs -> Some x
 
+let on_highlight id params =
+  let range =
+    `Assoc
+      [
+        ("start", `Assoc [ ("line", `Int 2); ("character", `Int 1) ]);
+        ("end", `Assoc [ ("line", `Int 2); ("character", `Int 10) ]);
+      ]
+  in
+  let result = `Assoc [ ("range", range); ("kind", `Int 1) ] in
+
+  let response = `Assoc [ ("id", `Int id); ("result", `List [ result ]) ] in
+
+  output_json response;
+  output_log (Rspn response)
 
 let on_hover id params =
   let path = get_uri params in
-  let path_len = String.length path in
   let st = get_state path in
-  let filename = String.sub path 8 (path_len - 8) in
 
   let lnum =
     params |> Util.member "position" |> Util.member "line" |> Util.to_int
@@ -176,98 +228,211 @@ let on_hover id params =
     params |> Util.member "position" |> Util.member "character" |> Util.to_int
   in
 
-  let ast = M.get_program_from_string filename st in
-  let tko = get_token_by_ast ast lnum cnum in
+  match st with
+  | Ast ast -> (
+      match subexp_at_pos ast lnum cnum with
+      | Some texp ->
+          let info =
+            match Simple_checker.check texp with
+            | infered -> Simple_checker.string_of_ty infered
+            | exception _ -> "type check failure"
+          in
+
+          let mdstr = "`" ^ info ^ "`" in
+
+          let content =
+            `Assoc [ ("kind", `String "markdown"); ("value", `String mdstr) ]
+          in
+
+          let range = gen_range texp.loc in
+          let response =
+            `Assoc
+              [
+                ("id", `Int id);
+                ("result", `Assoc [ ("contents", content); ("range", range) ]);
+              ]
+          in
+
+          output_json response;
+          output_log (Rspn response)
+      | None ->
+          let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
+          output_json response;
+          output_log (Rspn response))
+  | _ ->
+      let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
+      output_json response;
+      output_log (Rspn response)
+
+let on_code_lens id params =
+  let path = get_uri params in
+  (* let path_len = String.length path in *)
+  (* let filename = String.sub path 8 (path_len - 8) in *)
+  let st = get_state path in
+
   let info =
-    match tko with
-    | Some texp ->
-      (match Simple_checker.check texp with
-      | infered -> Simple_checker.string_of_ty infered
-      | exception _ -> "type check failure")
-    | None -> "token not found"
+    match st with
+    | Ast ast -> (
+        match Simple_checker.check ast with
+        | infered -> Simple_checker.string_of_ty infered
+        | exception _ -> "type check failure")
+    | Fail _ -> ""
   in
-
-  (* let token = get_token st lnum cnum in *)
-
-  let response =
-    `Assoc
-      [ ("id", `Int id); ("result", `Assoc [ ("contents", `String info) ]) ]
-  in
-
-  output_json response;
-  output_log (Rspn response)
-
-let publish_diag path lnum cnum =
-  (* let st = get_state path in let token = get_token st lnum cnum in *)
-  let lnum = 9 in
-  let cnum = 4 in
 
   let range =
     `Assoc
       [
-        ( "start",
-          `Assoc [ ("line", `Int (lnum - 1)); ("character", `Int (cnum - 1)) ]
-        );
-        ( "end",
-          `Assoc [ ("line", `Int (lnum - 1)); ("character", `Int (cnum - 1)) ]
-        );
+        ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
+        ("end", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
       ]
   in
+  let command = `Assoc [ ("title", `String info) ] in
+  let result = `Assoc [ ("range", range); ("command", command) ] in
 
-  let diagnostic =
-    `Assoc
-      [
-        ("range", range);
-        ("severity", `Int 1);
-        ("message", `String "Parsing Error");
-      ]
-  in
+  let response = `Assoc [ ("id", `Int id); ("result", `List [ result ]) ] in
 
-  let params =
-    `Assoc [ ("uri", `String path); ("diagnostics", `List [ diagnostic ]) ]
-  in
+  output_json response;
+  output_log (Rspn response)
 
-  let notification =
-    `Assoc
-      [
-        ("jsonrpc", `String "2.0");
-        ("method", `String "textDocument/publishDiagnostics");
-        ("params", params);
-      ]
-  in
-
-  output_json notification;
-  output_log (Noti notification)
-
-let on_code_lens id params =
+let push_diagnostic id params =
   let path = get_uri params in
-  let path_len = String.length path in
-  let filename = String.sub path 8 (path_len - 8) in
+  (* let path_len = String.length path in *)
+  (* let filename = String.sub path 8 (path_len - 8) in *)
   let st = get_state path in
 
-  try
-    let prog = M.get_program_from_string filename st in
-    let info =
-      match Simple_checker.check prog with
-      | infered -> Simple_checker.string_of_ty infered
-      | exception _ -> "type check failure"
-    in
+  match st with
+  | Ast ast ->
+      let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
+      output_json response;
+      output_log (Rspn response)
+  | Fail (msg, lnum, cnum) ->
+      let range =
+        `Assoc
+          [
+            ("start", `Assoc [ ("line", `Int lnum); ("character", `Int 0) ]);
+            ("end", `Assoc [ ("line", `Int lnum); ("character", `Int 100) ]);
+          ]
+      in
+      let item =
+        `Assoc
+          [ ("range", range); ("severity", `Int 1); ("message", `String msg) ]
+      in
+      let result =
+        `Assoc [ ("kind", `String "full"); ("items", `List [ item ]) ]
+      in
+      let response = `Assoc [ ("id", `Int id); ("result", result) ] in
+      output_json response;
+      output_log (Rspn response)
 
-    let range =
+  (* [
+        `String "namespace";
+        `String "variable";
+        `String "keyword";
+        `String "string";
+        `String "number";
+        `String "operator";
+      ] *)
+let produce_stokens (exp : Syntax.expr) =
+  let stokens = ref [] in
+
+  let append_token (loc : Location.t) (tokenlen : int) (tokentype : int)  =
+    let _, sline, schar = Location.get_pos_info loc.loc_start in
+    let _, eline, echar = Location.get_pos_info loc.loc_end in
+    let encoded =
+      if tokenlen = -1 then
+        [ sline - 1; schar; echar - schar + 1; tokentype; 0; ]
+      else
+        [ sline - 1; schar; tokenlen; tokentype; 0; ]
+    in
+    stokens := !stokens @ encoded
+  in
+
+  let rec find_tokens (exp : Syntax.expr) =
+    match exp.desc with
+    | Const (String s) ->
+      let len = String.length s in
+      append_token exp.loc len 3
+    | Const (Int n) ->
+      let str_of_int = Printf.sprintf "%d" n in
+      let len = String.length str_of_int in
+      append_token exp.loc len 4
+    | Const (Bool true) -> append_token exp.loc 4 2
+    | Const (Bool false) -> append_token exp.loc 5 2
+    | Var x ->
+      let len = String.length x in
+      append_token exp.loc len 1
+    | Fn (x, e) ->
+      (* let len = String.length x in *)
+      append_token exp.loc 2 2;
+      find_tokens e
+    | App (e1, e2) ->
+      find_tokens e1; find_tokens e2
+    | If (e1, e2, e3) ->
+      append_token exp.loc 2 2;
+      find_tokens e1;
+      find_tokens e2;
+      find_tokens e3
+    | Bop (op, e1, e2) ->
+      find_tokens e1;
+      find_tokens e2
+    | Read -> append_token exp.loc 4 2
+    | Write e ->
+      append_token exp.loc 4 2;
+      find_tokens e
+    | Pair (e1, e2) ->
+      find_tokens e1;
+      find_tokens e2
+    | Fst e -> find_tokens e
+    | Snd e -> find_tokens e
+    | Seq (e1, e2) ->
+      find_tokens e1;
+      find_tokens e2
+    | Let (Val (x, e1), e2) ->
+      (* let len = String.length x in *)
+      append_token exp.loc 7 2;
+      find_tokens e1;
+      find_tokens e2
+    | Let (Rec (f, x, e1), e2) ->
+      append_token exp.loc 7 2;
+      find_tokens e1;
+      find_tokens e2
+    | Malloc e ->
+      append_token exp.loc 6 2;
+      find_tokens e
+    | Assign (e1, e2) ->
+      find_tokens e1;
+      find_tokens e2
+    | Deref e ->
+      append_token exp.loc 1 5;
+      find_tokens e
+  in
+
+  find_tokens exp;
+  !stokens
+
+let on_tokens id params =
+  let path = get_uri params in
+  let st = get_state path in
+
+  match st with
+  | Ast ast ->
+    let stokens = produce_stokens ast in
+    let data = List.map (fun x -> `Int x) stokens in
+    let response =
       `Assoc
-        [
-          ("start", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
-          ("end", `Assoc [ ("line", `Int 0); ("character", `Int 0) ]);
-        ]
+        [ ("id", `Int id); ("result", `Assoc [ ("data", `List data) ]) ]
     in
-    let command = `Assoc [ ("title", `String info) ] in
-    let result = `Assoc [ ("range", range); ("command", command) ] in
-
-    let response = `Assoc [ ("id", `Int id); ("result", `List [ result ]) ] in
-
     output_json response;
     output_log (Rspn response)
-  with M.SyntaxError (lnum, cnum) -> publish_diag path (lnum - 1) cnum
+  | Fail _ ->
+    let response =
+      `Assoc
+        [ ("id", `Int id); ("result", `Null) ]
+    in
+    output_json response;
+    output_log (Rspn response)
+
+
 
 let read_header () =
   let header = input_line stdin in
@@ -282,32 +447,57 @@ let read_content clen =
   let _ = input_line stdin in
   really_input_string stdin clen
 
+let handle_req id method_name params =
+  match method_name with
+  | "initialize" ->
+      on_initialize id;
+      first := false
+  | "textDocument/documentHighlight" -> ()
+  | "textDocument/hover" -> on_hover id params
+  | "textDocument/codeLens" -> on_code_lens id params
+  | "textDocument/diagnostic" -> push_diagnostic id params
+  | "textDocument/semanticTokens/full" -> on_tokens id params
+  | "codeLens/resolve" -> failwith "who r u?"
+  | "shutdown" -> failwith "wtf!!!"
+  | _ -> ()
+
+let handle_noti method_name params =
+  match method_name with
+  | "textDocument/didOpen" -> on_did_open params
+  | "textDocument/didChange" -> on_did_change params
+  | "textDocument/didClose" -> on_did_close params
+  | _ -> ()
+
+let handle_rspn response =
+  (* let result = response |> Util.member "id" in let error = response |>
+     Util.member "error" in *)
+  ()
+
 let parse_content content =
-  let request = from_string content in
-  let ido = request |> Util.member "id" |> Util.to_int_option in
-  let method_name = request |> Util.member "method" |> Util.to_string in
-  let params = request |> Util.member "params" in
-  if ido = None then output_log (Noti request) else output_log (Req request);
-  (ido, method_name, params)
+  let content = from_string content in
+  let id_opt = content |> Util.member "id" |> Util.to_int_option in
+  let method_opt = content |> Util.member "method" |> Util.to_string_option in
+
+  match method_opt with
+  | Some method_name -> (
+      let params = content |> Util.member "params" in
+      match id_opt with
+      | Some id ->
+          current_id := id;
+          output_log (Req content);
+          handle_req id method_name params
+      | None ->
+          output_log (Noti content);
+          handle_noti method_name params)
+  | None ->
+      output_log (Rspn content);
+      handle_rspn content
 
 let rec loop () =
   match read_header () with
   | Some content_len ->
       let content = read_content content_len in
-      let ido, method_name, params = parse_content content in
-      let id = Option.value ido ~default:(-1) in
-      (match method_name with
-      | "initialize" ->
-          on_initialize id;
-          first := false
-      | "textDocument/didOpen" -> on_did_open params
-      | "textDocument/didChange" -> on_did_change params
-      | "textDocument/didClose" -> on_did_close params
-      | "textDocument/hover" -> on_hover id params
-      | "textDocument/codeLens" -> on_code_lens id params
-      | "codeLens/resolve" -> failwith "who r u?"
-      | "shutdown" -> failwith "wtf!!!"
-      | _ -> ());
+      parse_content content;
       flush_all ();
       loop ()
   | _ -> failwith "wtf?"
