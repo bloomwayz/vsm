@@ -232,16 +232,19 @@ let on_hover id params =
   | Ast ast -> (
       match subexp_at_pos ast lnum cnum with
       | Some texp ->
-          let info =
-            match Simple_checker.check_sub ast texp with
-            | infered -> Simple_checker.string_of_ty infered
-            | exception _ -> "type check failure"
+          let value =
+            match st with
+            | Ast ast -> (
+                match Simple_checker.check_sub ast texp with
+                | infered ->
+                    let tstr = Simple_checker.string_of_ty infered in
+                    `String ("```python\n" ^ tstr ^ "\n```")
+                | exception _ -> `Null)
+            | Fail _ -> `Null
           in
 
-          let mdstr = "`" ^ info ^ "`" in
-
           let content =
-            `Assoc [ ("kind", `String "markdown"); ("value", `String mdstr) ]
+            `Assoc [ ("kind", `String "markdown"); ("value", value) ]
           in
 
           let range = gen_range texp.loc in
@@ -275,7 +278,7 @@ let on_code_lens id params =
     | Ast ast -> (
         match Simple_checker.check_top ast with
         | infered -> Simple_checker.string_of_ty infered
-        | exception _ -> "type check failure")
+        | exception _ -> "")
     | Fail _ -> ""
   in
 
@@ -302,6 +305,9 @@ let push_diagnostic id params =
 
   match st with
   | Ast ast ->
+      (* let result =
+        match Simple_checker.check_top ast with
+        | exception Simple_checker.Unification_error msg ->  *)
       let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
       output_json response;
       output_log (Rspn response)
