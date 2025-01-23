@@ -305,10 +305,28 @@ let push_diagnostic id params =
 
   match st with
   | Ast ast ->
-      (* let result =
+      let result =
         match Simple_checker.check_top ast with
-        | exception Simple_checker.Unification_error msg ->  *)
-      let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
+        | ty -> `Null
+        | exception Simple_checker.Unification_error_with_loc (msg, loc)
+        | exception Simple_checker.Unbound_variable (msg, loc) ->
+            let _, sline, schar = Location.get_pos_info loc.loc_start in
+            let _, eline, echar = Location.get_pos_info loc.loc_end in
+            let sline, eline = sline - 1, eline - 1 in
+            let range =
+              `Assoc
+                [
+                  ("start", `Assoc [ ("line", `Int sline); ("character", `Int schar) ]);
+                  ("end", `Assoc [ ("line", `Int eline); ("character", `Int echar) ]);
+                ]
+            in
+            let item =
+              `Assoc
+                [ ("range", range); ("severity", `Int 1); ("message", `String msg) ]
+            in
+            `Assoc [ ("kind", `String "full"); ("items", `List [ item ]) ]
+      in
+      let response = `Assoc [ ("id", `Int id); ("result", result) ] in
       output_json response;
       output_log (Rspn response)
   | Fail (msg, lnum, cnum) ->
