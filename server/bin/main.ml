@@ -1,5 +1,6 @@
 open Yojson.Safe
 open Server
+open Str
 
 type jsonlog =
   | Req of Yojson.Safe.t
@@ -9,6 +10,7 @@ type jsonlog =
 type state = Ast of Syntax.expr | Fail of string * int * int
 
 let first = ref true
+let pgmtxt : (string, string) Hashtbl.t = Hashtbl.create 39
 let states : (string, state) Hashtbl.t = Hashtbl.create 39
 let log_list = ref []
 let current_id = ref 0
@@ -42,12 +44,15 @@ let on_initialize id =
   let stoken_list =
     `List
       [
-        `String "namespace";
-        `String "variable";
-        `String "keyword";
-        `String "string";
-        `String "number";
-        `String "operator";
+        `String "namespace"; (* 0 *)
+        `String "parameter"; (* 1 *)
+        `String "variable";  (* 2 *)
+        `String "function";  (* 3 *)
+        `String "keyword";   (* 4 *)
+        `String "comment";   (* 5 *)
+        `String "string";    (* 6 *)
+        `String "number";    (* 7 *)
+        `String "operator";  (* 8 *)
       ]
   in
   let modifier_list = `List [] in
@@ -118,6 +123,7 @@ let on_did_open params =
     with M.SyntaxError (msg, lnum, cnum) -> Fail (msg, lnum - 1, cnum)
   in
 
+  Hashtbl.add pgmtxt path text;
   Hashtbl.add states path st
 
 let on_did_change params =
@@ -137,12 +143,19 @@ let on_did_change params =
     with M.SyntaxError (msg, lnum, cnum) -> Fail (msg, lnum - 1, cnum)
   in
 
+  Hashtbl.replace pgmtxt path text;
   Hashtbl.replace states path st;
   refresh_diagnostic ()
 
 let on_did_close params =
   let path = get_uri params in
+  Hashtbl.remove pgmtxt path;
   Hashtbl.remove states path
+
+let get_pgmtxt path =
+  match Hashtbl.find_opt pgmtxt path with
+  | Some txt -> txt
+  | None -> failwith "Lookup Failure..."
 
 let get_state path =
   match Hashtbl.find_opt states path with
@@ -348,56 +361,76 @@ let push_diagnostic id params =
       output_json response;
       output_log (Rspn response)
 
-  (* [
-        `String "namespace";
-        `String "variable";
-        `String "keyword";
-        `String "string";
-        `String "number";
-        `String "operator";
-      ] *)
-let produce_stokens (exp : Syntax.expr) =
+let rec match_all r s i =
+  match Str.search_forward r s i with
+  | i ->
+    let sub = Str.matched_string s in
+    (i, sub) :: match_all r s (i + 1)
+  | exception Not_found -> []
+
+let get_ln_col s i =
+  let pattern = Str.regexp "\n" in
+  let nline_lst = match_all pattern s 0 in
+  let rec inner lst ln col prev =
+    match lst with
+    | [] -> (ln, col)
+    | (x, _) :: t ->
+      if x > col then (ln, col - prev) else
+        inner t (ln + 1) col x
+  in
+  inner nline_lst 1 i 0
+
+let produce_stokens (exp : Syntax.expr) (txt : string) =
   let stokens = ref [] in
 
-  let append_token (loc : Location.t) (tokenlen : int) (tokentype : int)  =
-    let _, sline, schar = Location.get_pos_info loc.loc_start in
-    let _, eline, echar = Location.get_pos_info loc.loc_end in
-    let tokenlen = echar - schar in
-    let encoded = [ sline - 1; schar; tokenlen; tokentype; 0; ] in
-    stokens := !stokens @ encoded
+  let append_token sln scol tlen ttyp  =
+    let encoded = [ sln - 1; scol; tlen; ttyp; 0; ] in
+    stokens := encoded :: !stokens
   in
 
   let rec find_tokens (exp : Syntax.expr) =
+    let loc = exp.loc in
+    let _, sln, scol = Location.get_pos_info loc.loc_start in
+    let _, eln, ecol = Location.get_pos_info loc.loc_end in
+
     match exp.desc with
     | Const (String s) ->
       let len = String.length s in
-      append_token exp.loc len 3
+      append_token sln scol len 6
     | Const (Int n) ->
       let str_of_int = Printf.sprintf "%d" n in
       let len = String.length str_of_int in
-      append_token exp.loc len 4
-    | Const (Bool true) -> append_token exp.loc 4 2
-    | Const (Bool false) -> append_token exp.loc 5 2
+      append_token sln scol len 7
+    | Const (Bool true) -> append_token sln scol 4 0
+    | Const (Bool false) -> append_token sln scol 5 0
     | Var x ->
       let len = String.length x in
-      append_token exp.loc len 1
+      append_token sln scol len 2
     | Fn (x, e) ->
-      (* let len = String.length x in *)
-      append_token exp.loc 2 2;
+      let len = String.length x in
+      append_token sln scol 2 4;
+      append_token sln (scol + 3) len 2;
+      append_token sln (scol + len + 4) 2 8;
       find_tokens e
     | App (e1, e2) ->
       find_tokens e1; find_tokens e2
     | If (e1, e2, e3) ->
-      append_token exp.loc 2 2;
+      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+      let _, e2_eln, e2_ecol = Location.get_pos_info e2.loc.loc_end in
+      append_token sln scol 2 4;
+      append_token e1_eln (e1_ecol + 1) 4 4;
+      append_token e2_eln (e2_ecol + 1) 4 4;
       find_tokens e1;
       find_tokens e2;
       find_tokens e3
     | Bop (op, e1, e2) ->
+      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+      append_token e1_eln (e1_ecol + 1) 2 8;
       find_tokens e1;
       find_tokens e2
-    | Read -> append_token exp.loc 4 2
+    | Read -> append_token sln scol 4 3
     | Write e ->
-      append_token exp.loc 4 2;
+      append_token sln scol 4 3;
       find_tokens e
     | Pair (e1, e2) ->
       find_tokens e1;
@@ -405,43 +438,88 @@ let produce_stokens (exp : Syntax.expr) =
     | Fst e -> find_tokens e
     | Snd e -> find_tokens e
     | Seq (e1, e2) ->
+      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+      append_token e1_eln (e1_ecol + 1) 1 4;
       find_tokens e1;
       find_tokens e2
     | Let (Val (x, e1), e2) ->
-      (* let len = String.length x in *)
-      append_token exp.loc 7 2;
+      let len = String.length x in
+      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+      append_token sln scol 7 4;
+      append_token sln (scol + 8) len 2;
+      append_token e1_eln (e1_ecol + 1) 2 4;
+      append_token eln (ecol - 3) 3 4;
       find_tokens e1;
       find_tokens e2
     | Let (Rec (f, x, e1), e2) ->
-      append_token exp.loc 7 2;
+      append_token sln scol 7 4;
       find_tokens e1;
       find_tokens e2
     | Malloc e ->
-      append_token exp.loc 6 2;
+      append_token sln scol 6 3;
       find_tokens e
     | Assign (e1, e2) ->
+      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+      append_token e1_eln (e1_ecol + 2) 2 8;
       find_tokens e1;
       find_tokens e2
     | Deref e ->
-      append_token exp.loc 1 5;
+      append_token sln scol 1 8;
       find_tokens e
   in
 
+  let find_comment txt =
+    let pattern = Str.regexp {|(\*.*\*)|} in
+    let cmt_list = match_all pattern txt 0 in
+    let rec inner lst =
+      match lst with
+      | [] -> ()
+      | (i, s) :: t ->
+        let sln, scol = get_ln_col txt i in
+        let len = String.length s in
+        append_token sln scol len 5;
+        inner t
+    in
+    inner cmt_list
+  in
+
+  let compare_tokens x y =
+    if List.nth x 0 != List.nth y 0 then
+      List.nth y 0 - List.nth x 0
+    else List.nth y 1 - List.nth x 1
+  in
+
+  find_comment txt;
   find_tokens exp;
-  !stokens
+  List.sort compare_tokens !stokens
+
+let rec delta_of_stokens stokens acc =
+  match stokens with
+  | [] -> acc
+  | [ x ] -> delta_of_stokens [] (x @ acc)
+  | x :: y :: t ->
+    let rln = List.nth x 0 - List.nth y 0 in
+    let rcol =
+      if rln > 0 then List.nth x 1 else
+        List.nth x 1 - List.nth y 1
+    in
+    let tlen, ttype = List.nth x 2, List.nth x 3 in
+    let acc' = [ rln; rcol; tlen; ttype; 0; ] @ acc in
+    delta_of_stokens (y :: t) acc'
 
 let on_tokens id params =
   let path = get_uri params in
+  let txt = get_pgmtxt path in
   let st = get_state path in
 
   match st with
   | Ast ast ->
-    (* let stokens = produce_stokens ast in *)
-    let stokens = [3; 5; 3; 0; 3; 0; 5; 4; 1; 0; 3; 2; 7; 2; 0] in
-    let data = List.map (fun x -> `Int x) stokens in
+    let stokens = produce_stokens ast txt in
+    let data = delta_of_stokens stokens [] in
+    let data' = List.map (fun x -> `Int x) data in
     let response =
       `Assoc
-        [ ("id", `Int id); ("result", `Assoc [ ("data", `List data) ]) ]
+        [ ("id", `Int id); ("result", `Assoc [ ("data", `List data') ]) ]
     in
     output_json response;
     output_log (Rspn response)
