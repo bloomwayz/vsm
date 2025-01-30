@@ -15,9 +15,10 @@ end
 type tyenv = ty_scheme Ty_env.t
 type subs = ty -> ty
 
+val string_of_ty : ty -> string
 val m_ty_of_ty : ty -> typ
 val check_top : expr -> typ
-val check_sub : expr -> expr -> typ
+val check_sub : expr -> expr -> ty
 val get_env_subs : expr -> tyenv * subs
-val string_of_ty : typ -> string
+val string_of_typ : typ -> string
 val find_var : id -> tyenv -> ty option

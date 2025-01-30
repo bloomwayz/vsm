@@ -257,18 +257,7 @@ let rec infer_sub (top : Syntax.expr) (sub : Syntax.expr) =
   | Const (String _) -> "string"
   | Const (Int _) -> "int"
   | Const (Bool _) -> "bool"
-  | Var x -> (
-      try
-        let tyenv, subs = Inference.get_env_subs top in
-        let tyo = Inference.find_var x tyenv in
-        match tyo with
-        | Some ty -> Inference.string_of_ty (Inference.m_ty_of_ty ty)
-        | None -> "unbound?"
-      with
-      | Inference.Unification_error_with_loc (msg, _)
-      | Inference.Unbound_variable (msg, _)
-      ->
-        msg)
+  | Var x -> "'a"
   | App (_, _) -> (
       match Inference.check_sub top sub with
       | infered -> Inference.string_of_ty infered
@@ -276,17 +265,6 @@ let rec infer_sub (top : Syntax.expr) (sub : Syntax.expr) =
   | Fn (x, e) -> (
       try infer_fn x e
       with _ -> "'a")
-      (* let t1 =
-        "'a"
-        (* match Inference.check_sub ast (Var x) with | infered ->
-           Inference.string_of_ty infered | exception _ -> "'a" *)
-      in
-      let t2 =
-        match Inference.check_sub top e with
-        | infered -> Inference.string_of_ty infered
-        | exception _ -> "'b"
-      in
-      Printf.sprintf "%s -> %s" t1 t2 *)
   | If (e1, e2, e3) -> (
       match Inference.check_sub top sub with
       | infered -> Inference.string_of_ty infered
@@ -317,6 +295,22 @@ let rec infer_sub (top : Syntax.expr) (sub : Syntax.expr) =
       | infered -> Inference.string_of_ty infered
       | exception _ -> "'a")
 
+let undisclose s =
+  let count = ref 0 in
+  let dict = [ "'a"; "'b"; "'c"; "'d"; "'e"; "'f"; "'g"; ] in
+  let r = Str.regexp {|'a[0-9]+|} in
+  let rec collect s i =
+    match Str.search_forward r s i with
+    | i ->
+        let sub = Str.matched_string s in
+        let subr = Str.regexp sub in
+        let s = Str.global_replace subr (List.nth dict !count) s in
+        let _ = count := 1 in
+        collect s (i + 1)
+    | exception Not_found -> s
+  in
+  collect s 0
+
 let on_hover id params =
   let path = get_uri params in
   let st = get_state path in
@@ -332,12 +326,20 @@ let on_hover id params =
   | Ast ast -> (
       match subexp_at_pos ast lnum cnum with
       | Some texp ->
-          (* let value = match st with | Ast ast -> ( match
-             Inference.check_sub ast texp with | infered -> let tstr =
-             Inference.string_of_ty infered in `String ("```python\n" ^
-             tstr ^ "\n```") | exception _ -> `Null) | Fail _ -> `Null in *)
-          let value_ = infer_sub ast texp in
-          let value = `String ("```ocaml\n" ^ value_ ^ "\n```") in
+          let value =
+            match st with
+            | Ast ast -> (
+                match Inference.check_sub ast texp with
+                | ty ->
+                    let v = Inference.string_of_ty ty in
+                    let v = undisclose v in
+                    `String ("```ocaml\n" ^ v ^ "\n```")
+                | exception _ -> `Null)
+            | Fail _ -> `Null
+          in
+
+          (* let value_ = infer_sub ast texp in
+          let value = `String ("```ocaml\n" ^ value_ ^ "\n```") in *)
 
           let content =
             `Assoc [ ("kind", `String "markdown"); ("value", value) ]
@@ -365,15 +367,13 @@ let on_hover id params =
 
 let on_code_lens id params =
   let path = get_uri params in
-  (* let path_len = String.length path in *)
-  (* let filename = String.sub path 8 (path_len - 8) in *)
   let st = get_state path in
 
   let info =
     match st with
     | Ast ast -> (
         match Inference.check_top ast with
-        | infered -> Inference.string_of_ty infered
+        | infered -> Inference.string_of_typ infered
         | exception _ -> "")
     | Fail _ -> ""
   in
