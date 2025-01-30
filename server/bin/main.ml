@@ -44,15 +44,24 @@ let on_initialize id =
   let stoken_list =
     `List
       [
-        `String "namespace"; (* 0 *)
-        `String "parameter"; (* 1 *)
-        `String "variable";  (* 2 *)
-        `String "function";  (* 3 *)
-        `String "keyword";   (* 4 *)
-        `String "comment";   (* 5 *)
-        `String "string";    (* 6 *)
-        `String "number";    (* 7 *)
-        `String "operator";  (* 8 *)
+        `String "namespace";
+        (* 0 *)
+        `String "parameter";
+        (* 1 *)
+        `String "variable";
+        (* 2 *)
+        `String "function";
+        (* 3 *)
+        `String "keyword";
+        (* 4 *)
+        `String "comment";
+        (* 5 *)
+        `String "string";
+        (* 6 *)
+        `String "number";
+        (* 7 *)
+        `String "operator";
+        (* 8 *)
       ]
   in
   let modifier_list = `List [] in
@@ -82,7 +91,7 @@ let on_initialize id =
               ("interFileDependencies", `Bool false);
               ("workspaceDiagnostics", `Bool true);
             ] );
-        ("signatureHelpProvider", `Bool true)
+        ("signatureHelpProvider", `Bool true);
       ]
   in
   let response =
@@ -173,6 +182,8 @@ let in_range (lnum : int) (cnum : int) (exp : Syntax.expr) =
   if sline <= lnum && lnum <= eline && schar <= cnum && cnum <= echar then true
   else false
 
+let f x y = if x = y then 0 else 1
+
 let gen_range (loc : Location.t) =
   let _, l1, c1 = Location.get_pos_info loc.loc_start in
   let _, l2, c2 = Location.get_pos_info loc.loc_end in
@@ -230,6 +241,82 @@ let on_highlight id params =
   output_json response;
   output_log (Rspn response)
 
+let rec infer_fn (param : string) (exp : Syntax.expr) =
+  match exp.desc with
+  | Const (String _) -> "string"
+  | Const (Int _) -> "int"
+  | Const (Bool _) -> "bool"
+  | Var x -> "'a"
+  | Fn (x, e) -> "COMING SOON"
+  | App (e, _) -> "COMING SOON"
+  | If (e1, e2, e3) -> "COMING SOON"
+  | _ -> "a"
+
+let rec infer_sub (top : Syntax.expr) (sub : Syntax.expr) =
+  match sub.desc with
+  | Const (String _) -> "string"
+  | Const (Int _) -> "int"
+  | Const (Bool _) -> "bool"
+  | Var x -> (
+      try
+        let tyenv, subs = Inference.get_env_subs top in
+        let tyo = Inference.find_var x tyenv in
+        match tyo with
+        | Some ty -> Inference.string_of_ty (Inference.m_ty_of_ty ty)
+        | None -> "unbound?"
+      with
+      | Inference.Unification_error_with_loc (msg, _)
+      | Inference.Unbound_variable (msg, _)
+      ->
+        msg)
+  | App (_, _) -> (
+      match Inference.check_sub top sub with
+      | infered -> Inference.string_of_ty infered
+      | exception _ -> "'a")
+  | Fn (x, e) -> (
+      try infer_fn x e
+      with _ -> "'a")
+      (* let t1 =
+        "'a"
+        (* match Inference.check_sub ast (Var x) with | infered ->
+           Inference.string_of_ty infered | exception _ -> "'a" *)
+      in
+      let t2 =
+        match Inference.check_sub top e with
+        | infered -> Inference.string_of_ty infered
+        | exception _ -> "'b"
+      in
+      Printf.sprintf "%s -> %s" t1 t2 *)
+  | If (e1, e2, e3) -> (
+      match Inference.check_sub top sub with
+      | infered -> Inference.string_of_ty infered
+      | exception _ -> "")
+  | Bop (op, e1, e2) -> (
+      match op with
+      | Add | Sub -> "int"
+      | And | Or | Eq -> "bool")
+  | Read -> "int"
+  | Write e -> "unit"
+  | Pair (e1, e2) -> "'a * 'a"
+  | Fst e -> "'a"
+  | Snd e -> "'a"
+  | Seq (e1, e2) ->
+      infer_sub top e2
+  | Let (Val (x, e1), e2) -> "let"
+  | Let (Rec (f, x, e1), e2) -> "letrec"
+  | Malloc e ->
+      let t =
+        match Inference.check_sub top e with
+        | infered -> Inference.string_of_ty infered
+        | exception _ -> "'a"
+      in
+      Printf.sprintf "%s loc" t
+  | Assign (e1, e2) -> "unit"
+  | Deref e -> (
+      match Inference.check_sub top sub with
+      | infered -> Inference.string_of_ty infered
+      | exception _ -> "'a")
+
 let on_hover id params =
   let path = get_uri params in
   let st = get_state path in
@@ -245,16 +332,12 @@ let on_hover id params =
   | Ast ast -> (
       match subexp_at_pos ast lnum cnum with
       | Some texp ->
-          let value =
-            match st with
-            | Ast ast -> (
-                match Simple_checker.check_sub ast texp with
-                | infered ->
-                    let tstr = Simple_checker.string_of_ty infered in
-                    `String ("```python\n" ^ tstr ^ "\n```")
-                | exception _ -> `Null)
-            | Fail _ -> `Null
-          in
+          (* let value = match st with | Ast ast -> ( match
+             Inference.check_sub ast texp with | infered -> let tstr =
+             Inference.string_of_ty infered in `String ("```python\n" ^
+             tstr ^ "\n```") | exception _ -> `Null) | Fail _ -> `Null in *)
+          let value_ = infer_sub ast texp in
+          let value = `String ("```ocaml\n" ^ value_ ^ "\n```") in
 
           let content =
             `Assoc [ ("kind", `String "markdown"); ("value", value) ]
@@ -289,8 +372,8 @@ let on_code_lens id params =
   let info =
     match st with
     | Ast ast -> (
-        match Simple_checker.check_top ast with
-        | infered -> Simple_checker.string_of_ty infered
+        match Inference.check_top ast with
+        | infered -> Inference.string_of_ty infered
         | exception _ -> "")
     | Fail _ -> ""
   in
@@ -319,23 +402,31 @@ let push_diagnostic id params =
   match st with
   | Ast ast ->
       let result =
-        match Simple_checker.check_top ast with
+        match Inference.check_top ast with
         | ty -> `Null
-        | exception Simple_checker.Unification_error_with_loc (msg, loc)
-        | exception Simple_checker.Unbound_variable (msg, loc) ->
+        | (exception Inference.Unification_error_with_loc (msg, loc))
+        | (exception Inference.Unbound_variable (msg, loc)) ->
             let _, sline, schar = Location.get_pos_info loc.loc_start in
             let _, eline, echar = Location.get_pos_info loc.loc_end in
-            let sline, eline = sline - 1, eline - 1 in
+            let sline, eline = (sline - 1, eline - 1) in
             let range =
               `Assoc
                 [
-                  ("start", `Assoc [ ("line", `Int sline); ("character", `Int schar) ]);
-                  ("end", `Assoc [ ("line", `Int eline); ("character", `Int echar) ]);
+                  ( "start",
+                    `Assoc [ ("line", `Int sline); ("character", `Int schar) ]
+                  );
+                  ( "end",
+                    `Assoc [ ("line", `Int eline); ("character", `Int echar) ]
+                  );
                 ]
             in
             let item =
               `Assoc
-                [ ("range", range); ("severity", `Int 1); ("message", `String msg) ]
+                [
+                  ("range", range);
+                  ("severity", `Int 1);
+                  ("message", `String msg);
+                ]
             in
             `Assoc [ ("kind", `String "full"); ("items", `List [ item ]) ]
       in
@@ -364,8 +455,8 @@ let push_diagnostic id params =
 let rec match_all r s i =
   match Str.search_forward r s i with
   | i ->
-    let sub = Str.matched_string s in
-    (i, sub) :: match_all r s (i + 1)
+      let sub = Str.matched_string s in
+      (i, sub) :: match_all r s (i + 1)
   | exception Not_found -> []
 
 let get_ln_col s i =
@@ -375,16 +466,15 @@ let get_ln_col s i =
     match lst with
     | [] -> (ln, col)
     | (x, _) :: t ->
-      if x > col then (ln, col - prev) else
-        inner t (ln + 1) col x
+        if x > col then (ln, col - prev) else inner t (ln + 1) col x
   in
   inner nline_lst 1 i 0
 
 let produce_stokens (exp : Syntax.expr) (txt : string) =
   let stokens = ref [] in
 
-  let append_token sln scol tlen ttyp  =
-    let encoded = [ sln - 1; scol; tlen; ttyp; 0; ] in
+  let append_token sln scol tlen ttyp =
+    let encoded = [ sln - 1; scol; tlen; ttyp; 0 ] in
     stokens := encoded :: !stokens
   in
 
@@ -395,77 +485,78 @@ let produce_stokens (exp : Syntax.expr) (txt : string) =
 
     match exp.desc with
     | Const (String s) ->
-      let len = String.length s in
-      append_token sln scol len 6
+        let len = String.length s in
+        append_token sln scol len 6
     | Const (Int n) ->
-      let str_of_int = Printf.sprintf "%d" n in
-      let len = String.length str_of_int in
-      append_token sln scol len 7
+        let str_of_int = Printf.sprintf "%d" n in
+        let len = String.length str_of_int in
+        append_token sln scol len 7
     | Const (Bool true) -> append_token sln scol 4 0
     | Const (Bool false) -> append_token sln scol 5 0
     | Var x ->
-      let len = String.length x in
-      append_token sln scol len 2
+        let len = String.length x in
+        append_token sln scol len 2
     | Fn (x, e) ->
-      let len = String.length x in
-      append_token sln scol 2 4;
-      append_token sln (scol + 3) len 2;
-      append_token sln (scol + len + 4) 2 8;
-      find_tokens e
+        let len = String.length x in
+        append_token sln scol 2 4;
+        append_token sln (scol + 3) len 2;
+        append_token sln (scol + len + 4) 2 8;
+        find_tokens e
     | App (e1, e2) ->
-      find_tokens e1; find_tokens e2
+        find_tokens e1;
+        find_tokens e2
     | If (e1, e2, e3) ->
-      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
-      let _, e2_eln, e2_ecol = Location.get_pos_info e2.loc.loc_end in
-      append_token sln scol 2 4;
-      append_token e1_eln (e1_ecol + 1) 4 4;
-      append_token e2_eln (e2_ecol + 1) 4 4;
-      find_tokens e1;
-      find_tokens e2;
-      find_tokens e3
+        let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+        let _, e2_eln, e2_ecol = Location.get_pos_info e2.loc.loc_end in
+        append_token sln scol 2 4;
+        append_token e1_eln (e1_ecol + 1) 4 4;
+        append_token e2_eln (e2_ecol + 1) 4 4;
+        find_tokens e1;
+        find_tokens e2;
+        find_tokens e3
     | Bop (op, e1, e2) ->
-      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
-      append_token e1_eln (e1_ecol + 1) 2 8;
-      find_tokens e1;
-      find_tokens e2
+        let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+        append_token e1_eln (e1_ecol + 1) 2 8;
+        find_tokens e1;
+        find_tokens e2
     | Read -> append_token sln scol 4 3
     | Write e ->
-      append_token sln scol 4 3;
-      find_tokens e
+        append_token sln scol 4 3;
+        find_tokens e
     | Pair (e1, e2) ->
-      find_tokens e1;
-      find_tokens e2
+        find_tokens e1;
+        find_tokens e2
     | Fst e -> find_tokens e
     | Snd e -> find_tokens e
     | Seq (e1, e2) ->
-      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
-      append_token e1_eln (e1_ecol + 1) 1 4;
-      find_tokens e1;
-      find_tokens e2
+        let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+        append_token e1_eln (e1_ecol + 1) 1 4;
+        find_tokens e1;
+        find_tokens e2
     | Let (Val (x, e1), e2) ->
-      let len = String.length x in
-      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
-      append_token sln scol 7 4;
-      append_token sln (scol + 8) len 2;
-      append_token e1_eln (e1_ecol + 1) 2 4;
-      append_token eln (ecol - 3) 3 4;
-      find_tokens e1;
-      find_tokens e2
+        let len = String.length x in
+        let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+        append_token sln scol 7 4;
+        append_token sln (scol + 8) len 2;
+        append_token e1_eln (e1_ecol + 1) 2 4;
+        append_token eln (ecol - 3) 3 4;
+        find_tokens e1;
+        find_tokens e2
     | Let (Rec (f, x, e1), e2) ->
-      append_token sln scol 7 4;
-      find_tokens e1;
-      find_tokens e2
+        append_token sln scol 7 4;
+        find_tokens e1;
+        find_tokens e2
     | Malloc e ->
-      append_token sln scol 6 3;
-      find_tokens e
+        append_token sln scol 6 3;
+        find_tokens e
     | Assign (e1, e2) ->
-      let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
-      append_token e1_eln (e1_ecol + 2) 2 8;
-      find_tokens e1;
-      find_tokens e2
+        let _, e1_eln, e1_ecol = Location.get_pos_info e1.loc.loc_end in
+        append_token e1_eln (e1_ecol + 2) 2 8;
+        find_tokens e1;
+        find_tokens e2
     | Deref e ->
-      append_token sln scol 1 8;
-      find_tokens e
+        append_token sln scol 1 8;
+        find_tokens e
   in
 
   let find_comment txt =
@@ -475,17 +566,16 @@ let produce_stokens (exp : Syntax.expr) (txt : string) =
       match lst with
       | [] -> ()
       | (i, s) :: t ->
-        let sln, scol = get_ln_col txt i in
-        let len = String.length s in
-        append_token sln scol len 5;
-        inner t
+          let sln, scol = get_ln_col txt i in
+          let len = String.length s in
+          append_token sln scol len 5;
+          inner t
     in
     inner cmt_list
   in
 
   let compare_tokens x y =
-    if List.nth x 0 != List.nth y 0 then
-      List.nth y 0 - List.nth x 0
+    if List.nth x 0 != List.nth y 0 then List.nth y 0 - List.nth x 0
     else List.nth y 1 - List.nth x 1
   in
 
@@ -498,14 +588,13 @@ let rec delta_of_stokens stokens acc =
   | [] -> acc
   | [ x ] -> delta_of_stokens [] (x @ acc)
   | x :: y :: t ->
-    let rln = List.nth x 0 - List.nth y 0 in
-    let rcol =
-      if rln > 0 then List.nth x 1 else
-        List.nth x 1 - List.nth y 1
-    in
-    let tlen, ttype = List.nth x 2, List.nth x 3 in
-    let acc' = [ rln; rcol; tlen; ttype; 0; ] @ acc in
-    delta_of_stokens (y :: t) acc'
+      let rln = List.nth x 0 - List.nth y 0 in
+      let rcol =
+        if rln > 0 then List.nth x 1 else List.nth x 1 - List.nth y 1
+      in
+      let tlen, ttype = (List.nth x 2, List.nth x 3) in
+      let acc' = [ rln; rcol; tlen; ttype; 0 ] @ acc in
+      delta_of_stokens (y :: t) acc'
 
 let on_tokens id params =
   let path = get_uri params in
@@ -514,22 +603,18 @@ let on_tokens id params =
 
   match st with
   | Ast ast ->
-    let stokens = produce_stokens ast txt in
-    let data = delta_of_stokens stokens [] in
-    let data' = List.map (fun x -> `Int x) data in
-    let response =
-      `Assoc
-        [ ("id", `Int id); ("result", `Assoc [ ("data", `List data') ]) ]
-    in
-    output_json response;
-    output_log (Rspn response)
+      let stokens = produce_stokens ast txt in
+      let data = delta_of_stokens stokens [] in
+      let data' = List.map (fun x -> `Int x) data in
+      let response =
+        `Assoc [ ("id", `Int id); ("result", `Assoc [ ("data", `List data') ]) ]
+      in
+      output_json response;
+      output_log (Rspn response)
   | Fail _ ->
-    let response =
-      `Assoc
-        [ ("id", `Int id); ("result", `Null) ]
-    in
-    output_json response;
-    output_log (Rspn response)
+      let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
+      output_json response;
+      output_log (Rspn response)
 
 let read_header () =
   let header = input_line stdin in

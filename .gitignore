@@ -1,4 +1,4 @@
-server/lib/simple_checker.ml
+server/lib/inference.ml
 log.txt
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,node,ocaml
