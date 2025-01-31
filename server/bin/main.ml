@@ -82,7 +82,7 @@ let on_initialize id =
                   ] );
               ("full", `Bool true);
             ] );
-        ("documentHighlightProvider", `Bool true);
+        ("documentHighlightProvider", `Bool false);
         ("hoverProvider", `Bool true);
         ("codeLensProvider", `Assoc [ ("resolveProvider", `Bool true) ]);
         ( "diagnosticProvider",
@@ -182,8 +182,6 @@ let in_range (lnum : int) (cnum : int) (exp : Syntax.expr) =
   if sline <= lnum && lnum <= eline && schar <= cnum && cnum <= echar then true
   else false
 
-let f x y = if x = y then 0 else 1
-
 let gen_range (loc : Location.t) =
   let _, l1, c1 = Location.get_pos_info loc.loc_start in
   let _, l2, c2 = Location.get_pos_info loc.loc_end in
@@ -252,7 +250,7 @@ let rec infer_fn (param : string) (exp : Syntax.expr) =
   | If (e1, e2, e3) -> "COMING SOON"
   | _ -> "a"
 
-let rec infer_sub (top : Syntax.expr) (sub : Syntax.expr) =
+let rec infer_sub_ (top : Syntax.expr) (sub : Syntax.expr) =
   match sub.desc with
   | Const (String _) -> "string"
   | Const (Int _) -> "int"
@@ -279,7 +277,7 @@ let rec infer_sub (top : Syntax.expr) (sub : Syntax.expr) =
   | Fst e -> "'a"
   | Snd e -> "'a"
   | Seq (e1, e2) ->
-      infer_sub top e2
+      infer_sub_ top e2
   | Let (Val (x, e1), e2) -> "let"
   | Let (Rec (f, x, e1), e2) -> "letrec"
   | Malloc e ->
@@ -311,9 +309,78 @@ let undisclose s =
   in
   collect s 0
 
+let slice (txt : string) (loc : Location.t) =
+  let r = Str.regexp "\n" in
+  let _, sln, scol = Location.get_pos_info loc.loc_start in
+  let txtlen = String.length txt in
+  
+  let rec compute s i ln =
+    match Str.search_forward r s i with
+    | i ->
+        if ln = sln then i
+        else compute s i (ln + 1)
+    | exception Not_found -> failwith "Not_found"
+  in
+
+  let start_ = compute txt 0 0 in
+  let gaplen = String.length (Str.matched_string txt) in
+  let start = start_ + gaplen in
+
+  String.sub txt start (txtlen - start - gaplen)
+
+let in_param_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int) (cnum : int) =
+  let loc = exp.loc in
+  let _, _, scol = Location.get_pos_info loc.loc_start in
+
+  let s = slice pgmtxt loc in
+  let r = Str.regexp {|fn |} in
+  let _ = Str.search_forward r s 0 in
+  let start = scol + String.length (Str.matched_string s) in
+
+  let id =
+      match exp.desc with
+      | Fn (x, _) -> x
+      | _ -> failwith "no way!"
+  in
+
+  let end_ = start + String.length id in
+
+  if start <= cnum && cnum <= end_ then Some (lnum, start, end_)
+  else None
+
+let infer_sub (pgmtxt : string) (ast : Syntax.expr) (exp : Syntax.expr) (lnum : int) (cnum : int) =
+  let range = gen_range exp.loc in
+    match exp.desc with
+    | Const (String _) -> Some ("string", range)
+    | Const (Int _) -> Some ("int", range)
+    | Const (Bool _) -> Some ("bool", range)
+    | Fn (id, expr) ->
+      let range_opt = in_param_range pgmtxt exp lnum cnum in (
+        match range_opt with
+        | Some (lnum, start, end_) ->
+          let fty = Inference.check_sub ast exp in
+          let fty = Inference.string_of_ty fty in
+          let r = Str.regexp {| -> |} in
+          let i = Str.search_forward r fty 0 in
+
+          let start_pos = `Assoc [ ("line", `Int lnum); ("character", `Int start) ] in
+          let end_pos = `Assoc [ ("line", `Int lnum); ("character", `Int end_) ] in
+          let range = `Assoc [ ("start", start_pos); ("end", end_pos) ] in
+
+          Some (String.sub fty 0 i, range)
+      | None -> (
+        match Inference.check_sub ast exp with
+        | x -> Some (Inference.string_of_ty x, range)
+        | exception _ -> None ) )
+    | _ -> (
+        match Inference.check_sub ast exp with
+        | x -> Some (Inference.string_of_ty x, range)
+        | exception _ -> None )
+
 let on_hover id params =
   let path = get_uri params in
   let st = get_state path in
+  let pgmtxt = get_pgmtxt path in
 
   let lnum =
     params |> Util.member "position" |> Util.member "line" |> Util.to_int
@@ -326,26 +393,16 @@ let on_hover id params =
   | Ast ast -> (
       match subexp_at_pos ast lnum cnum with
       | Some texp ->
-          let value =
-            match st with
-            | Ast ast -> (
-                match Inference.check_sub ast texp with
-                | ty ->
-                    let v = Inference.string_of_ty ty in
-                    let v = undisclose v in
-                    `String ("```ocaml\n" ^ v ^ "\n```")
-                | exception _ -> `Null)
-            | Fail _ -> `Null
+          let value, range =
+            match (infer_sub pgmtxt ast texp lnum cnum) with
+            | Some (ty, range) -> `String ("```ocaml\n" ^ (undisclose ty) ^ "\n```"), range
+            | None -> `Null, `Null
           in
-
-          (* let value_ = infer_sub ast texp in
-          let value = `String ("```ocaml\n" ^ value_ ^ "\n```") in *)
 
           let content =
             `Assoc [ ("kind", `String "markdown"); ("value", value) ]
           in
 
-          let range = gen_range texp.loc in
           let response =
             `Assoc
               [
@@ -373,7 +430,7 @@ let on_code_lens id params =
     match st with
     | Ast ast -> (
         match Inference.check_top ast with
-        | infered -> Inference.string_of_typ infered
+        | infered -> undisclose (Inference.string_of_ty infered)
         | exception _ -> "")
     | Fail _ -> ""
   in
@@ -403,9 +460,10 @@ let push_diagnostic id params =
   | Ast ast ->
       let result =
         match Inference.check_top ast with
-        | ty -> `Null
+        | _ -> `Null
         | (exception Inference.Unification_error_with_loc (msg, loc))
         | (exception Inference.Unbound_variable (msg, loc)) ->
+            let msg = undisclose msg in
             let _, sline, schar = Location.get_pos_info loc.loc_start in
             let _, eline, echar = Location.get_pos_info loc.loc_end in
             let sline, eline = (sline - 1, eline - 1) in
