@@ -239,63 +239,9 @@ let on_highlight id params =
   output_json response;
   output_log (Rspn response)
 
-let rec infer_fn (param : string) (exp : Syntax.expr) =
-  match exp.desc with
-  | Const (String _) -> "string"
-  | Const (Int _) -> "int"
-  | Const (Bool _) -> "bool"
-  | Var x -> "'a"
-  | Fn (x, e) -> "COMING SOON"
-  | App (e, _) -> "COMING SOON"
-  | If (e1, e2, e3) -> "COMING SOON"
-  | _ -> "a"
-
-let rec infer_sub_ (top : Syntax.expr) (sub : Syntax.expr) =
-  match sub.desc with
-  | Const (String _) -> "string"
-  | Const (Int _) -> "int"
-  | Const (Bool _) -> "bool"
-  | Var x -> "'a"
-  | App (_, _) -> (
-      match Inference.check_sub top sub with
-      | infered -> Inference.string_of_ty infered
-      | exception _ -> "'a")
-  | Fn (x, e) -> (
-      try infer_fn x e
-      with _ -> "'a")
-  | If (e1, e2, e3) -> (
-      match Inference.check_sub top sub with
-      | infered -> Inference.string_of_ty infered
-      | exception _ -> "")
-  | Bop (op, e1, e2) -> (
-      match op with
-      | Add | Sub -> "int"
-      | And | Or | Eq -> "bool")
-  | Read -> "int"
-  | Write e -> "unit"
-  | Pair (e1, e2) -> "'a * 'a"
-  | Fst e -> "'a"
-  | Snd e -> "'a"
-  | Seq (e1, e2) ->
-      infer_sub_ top e2
-  | Let (Val (x, e1), e2) -> "let"
-  | Let (Rec (f, x, e1), e2) -> "letrec"
-  | Malloc e ->
-      let t =
-        match Inference.check_sub top e with
-        | infered -> Inference.string_of_ty infered
-        | exception _ -> "'a"
-      in
-      Printf.sprintf "%s loc" t
-  | Assign (e1, e2) -> "unit"
-  | Deref e -> (
-      match Inference.check_sub top sub with
-      | infered -> Inference.string_of_ty infered
-      | exception _ -> "'a")
-
 let undisclose s =
   let count = ref 0 in
-  let dict = [ "'a"; "'b"; "'c"; "'d"; "'e"; "'f"; "'g"; ] in
+  let dict = [ "'a"; "'b"; "'c"; "'d"; "'e"; "'f"; "'g" ] in
   let r = Str.regexp {|'a[0-9]+|} in
   let rec collect s i =
     match Str.search_forward r s i with
@@ -313,12 +259,10 @@ let slice (txt : string) (loc : Location.t) =
   let r = Str.regexp "\n" in
   let _, sln, scol = Location.get_pos_info loc.loc_start in
   let txtlen = String.length txt in
-  
+
   let rec compute s i ln =
     match Str.search_forward r s i with
-    | i ->
-        if ln = sln then i
-        else compute s i (ln + 1)
+    | i -> if ln = sln then i else compute s i (ln + 1)
     | exception Not_found -> failwith "Not_found"
   in
 
@@ -328,7 +272,8 @@ let slice (txt : string) (loc : Location.t) =
 
   String.sub txt start (txtlen - start - gaplen)
 
-let in_param_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int) (cnum : int) =
+let in_param_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int)
+    (cnum : int) =
   let loc = exp.loc in
   let _, _, scol = Location.get_pos_info loc.loc_start in
 
@@ -337,45 +282,50 @@ let in_param_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int) (cnum : in
   let _ = Str.search_forward r s 0 in
   let start = scol + String.length (Str.matched_string s) in
 
-  let id =
-      match exp.desc with
-      | Fn (x, _) -> x
-      | _ -> failwith "no way!"
-  in
+  let id = match exp.desc with Fn (x, _) -> x | _ -> failwith "no way!" in
 
   let end_ = start + String.length id in
 
-  if start <= cnum && cnum <= end_ then Some (lnum, start, end_)
-  else None
+  if start <= cnum && cnum <= end_ then Some (lnum, start, end_) else None
 
-let infer_sub (pgmtxt : string) (ast : Syntax.expr) (exp : Syntax.expr) (lnum : int) (cnum : int) =
+let infer_sub (pgmtxt : string) (ast : Syntax.expr) (exp : Syntax.expr)
+    (lnum : int) (cnum : int) =
   let range = gen_range exp.loc in
-    match exp.desc with
-    | Const (String _) -> Some ("string", range)
-    | Const (Int _) -> Some ("int", range)
-    | Const (Bool _) -> Some ("bool", range)
-    | Fn (id, expr) ->
-      let range_opt = in_param_range pgmtxt exp lnum cnum in (
-        match range_opt with
-        | Some (lnum, start, end_) ->
-          let fty = Inference.check_sub ast exp in
-          let fty = Inference.string_of_ty fty in
-          let r = Str.regexp {| -> |} in
-          let i = Str.search_forward r fty 0 in
-
-          let start_pos = `Assoc [ ("line", `Int lnum); ("character", `Int start) ] in
-          let end_pos = `Assoc [ ("line", `Int lnum); ("character", `Int end_) ] in
+  match exp.desc with
+  | Const (String _) -> Some ("string", range)
+  | Const (Int _) -> Some ("int", range)
+  | Const (Bool _) -> Some ("bool", range)
+  | Fn (id, expr) -> (
+      let range_opt = in_param_range pgmtxt exp lnum cnum in
+      match range_opt with
+      | Some (lnum, start, end_) ->
+          let start_pos =
+            `Assoc [ ("line", `Int lnum); ("character", `Int start) ]
+          in
+          let end_pos =
+            `Assoc [ ("line", `Int lnum); ("character", `Int end_) ]
+          in
           let range = `Assoc [ ("start", start_pos); ("end", end_pos) ] in
 
-          Some (String.sub fty 0 i, range)
+          let fty_str =
+            try
+              let fty = Inference.check_sub ast exp in
+              let fty = Inference.string_of_ty fty in
+              let r = Str.regexp {| -> |} in
+              let i = Str.search_forward r fty 0 in
+              String.sub fty 0 i
+            with Inference.Unification_error_with_loc (msg, _) -> msg
+          in
+
+          Some (fty_str, range)
       | None -> (
-        match Inference.check_sub ast exp with
-        | x -> Some (Inference.string_of_ty x, range)
-        | exception _ -> None ) )
-    | _ -> (
-        match Inference.check_sub ast exp with
-        | x -> Some (Inference.string_of_ty x, range)
-        | exception _ -> None )
+          match Inference.check_sub ast exp with
+          | x -> Some (Inference.string_of_ty x, range)
+          | exception _ -> None))
+  | _ -> (
+      match Inference.check_sub ast exp with
+      | x -> Some (Inference.string_of_ty x, range)
+      | exception _ -> None)
 
 let on_hover id params =
   let path = get_uri params in
@@ -394,9 +344,10 @@ let on_hover id params =
       match subexp_at_pos ast lnum cnum with
       | Some texp ->
           let value, range =
-            match (infer_sub pgmtxt ast texp lnum cnum) with
-            | Some (ty, range) -> `String ("```ocaml\n" ^ (undisclose ty) ^ "\n```"), range
-            | None -> `Null, `Null
+            match infer_sub pgmtxt ast texp lnum cnum with
+            | Some (ty, range) ->
+                (`String ("```ocaml\n" ^ undisclose ty ^ "\n```"), range)
+            | None -> (`Null, `Null)
           in
 
           let content =
@@ -414,7 +365,28 @@ let on_hover id params =
           output_json response;
           output_log (Rspn response)
       | None ->
-          let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
+          let value_ = "Let?" in
+          let value = `String ("```ocaml\n" ^ value_ ^ "\n```") in
+          let content =
+            `Assoc [ ("kind", `String "markdown"); ("value", value) ]
+          in
+
+          let start_pos =
+            `Assoc [ ("line", `Int lnum); ("character", `Int cnum) ]
+          in
+          let end_pos =
+            `Assoc [ ("line", `Int lnum); ("character", `Int cnum) ]
+          in
+          let range = `Assoc [ ("start", start_pos); ("end", end_pos) ] in
+
+          let response =
+            `Assoc
+              [
+                ("id", `Int id);
+                ("result", `Assoc [ ("contents", content); ("range", range) ]);
+              ]
+          in
+
           output_json response;
           output_log (Rspn response))
   | _ ->
