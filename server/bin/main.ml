@@ -171,15 +171,32 @@ let get_state path =
   | Some state -> state
   | None -> failwith "Lookup Failure..."
 
-let in_range (lnum : int) (cnum : int) (exp : Syntax.expr) =
+let get_nth s ln col =
+  let r = Str.regexp "\n" in
+  let rec inner i l =
+    if l = ln then i + col
+    else (
+      match Str.search_forward r s i with
+      | x -> inner x (l + 1)
+      | exception Not_found -> failwith "something wrong" )
+  in
+  inner 0 1
+
+let in_range (txt : string) (lnum : int) (cnum : int) (exp : Syntax.expr) =
   let lnum = lnum + 1 in
   let cnum = cnum + 1 in
 
   let loc = exp.loc in
   let _, sline, schar = Location.get_pos_info loc.loc_start in
-  let _, eline, echar = Location.get_pos_info loc.loc_end in
+  let _, eline, echar = Location.get_pos_info loc.loc_end in 
 
-  if sline <= lnum && lnum <= eline && schar <= cnum && cnum <= echar then true
+  (* let start_ = get_nth txt sline schar in
+  let origin = get_nth txt lnum cnum in
+  let end_ = get_nth txt eline echar in *)
+  (* let _ = failwith (Printf.sprintf "%d:%d:%d %d:%d:%d %d:%d:%d" sline schar start_ lnum cnum origin eline echar end_) in *)
+
+  (* if start_ <= origin && origin <= end_ then true *)
+  if (sline < lnum && lnum < eline) || (sline = lnum && lnum < eline && schar <= cnum) || (sline < lnum && lnum = eline && cnum <= echar) || (sline = lnum && lnum = eline && schar <= cnum && cnum <= echar) then true
   else false
 
 let gen_range (loc : Location.t) =
@@ -193,15 +210,12 @@ let gen_range (loc : Location.t) =
 
   `Assoc [ ("start", start_pos); ("end", end_pos) ]
 
-let rec subexp_at_pos exp lnum cnum =
-  let subexps = ref [] in
-
-  let rec traverse_ast (exp : Syntax.expr) =
+let rec subexp_at_pos exp txt lnum cnum =
+  let rec traverse_ast (exp : Syntax.expr) (acc : Syntax.expr list) =
     match exp.desc with
-    | Const _ | Var _ | Read -> subexps := exp :: !subexps
+    | Const _ | Var _ | Read -> (exp :: acc)
     | Fn (_, e) | Write e | Fst e | Snd e | Malloc e | Deref e ->
-        subexps := exp :: !subexps;
-        traverse_ast e
+        traverse_ast e (exp :: acc)
     | App (e1, e2)
     | Bop (_, e1, e2)
     | Assign (e1, e2)
@@ -209,20 +223,21 @@ let rec subexp_at_pos exp lnum cnum =
     | Pair (e1, e2)
     | Let (Val (_, e1), e2)
     | Let (Rec (_, _, e1), e2) ->
-        subexps := exp :: !subexps;
-        traverse_ast e1;
-        traverse_ast e2
+        let acc' = traverse_ast e1 (exp :: acc) in
+        traverse_ast e2 acc'
     | If (e1, e2, e3) ->
-        subexps := exp :: !subexps;
-        traverse_ast e1;
-        traverse_ast e2;
-        traverse_ast e3
+        let acc' = traverse_ast e1 (exp :: acc) in
+        let acc'' = traverse_ast e2 acc' in
+        traverse_ast e3 acc''
   in
 
-  let _ = traverse_ast exp in
-  let result = List.filter (in_range lnum cnum) !subexps in
+  let subexps = traverse_ast exp [] in
+  (* let num_of_exps = List.length subexps in *)
+  let result = List.filter (in_range txt lnum cnum) subexps in
 
-  match result with [] -> None | x :: xs -> Some x
+  match result with
+  | [] -> None
+  | x :: xs -> Some x
 
 let on_highlight id params =
   let range =
@@ -255,35 +270,92 @@ let undisclose s =
   in
   collect s 0
 
-let slice (txt : string) (loc : Location.t) =
+let slice txt lnum cnum =
   let r = Str.regexp "\n" in
-  let _, sln, scol = Location.get_pos_info loc.loc_start in
   let txtlen = String.length txt in
 
   let rec compute s i ln =
     match Str.search_forward r s i with
-    | i -> if ln = sln then i else compute s i (ln + 1)
+    | i -> if ln = lnum then i else compute s i (ln + 1)
     | exception Not_found -> failwith "Not_found"
   in
 
-  let start_ = compute txt 0 0 in
-  let gaplen = String.length (Str.matched_string txt) in
-  let start = start_ + gaplen in
+  let start = compute txt 0 0 in
 
-  String.sub txt start (txtlen - start - gaplen)
+  String.sub txt start (txtlen - start)
 
-let in_param_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int)
+let in_letval_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int) (cnum : int) =
+  let loc = exp.loc in
+  let _, sln, scol = Location.get_pos_info loc.loc_start in
+
+  let s = slice pgmtxt sln scol in
+  let r = Str.regexp {|let val |} in
+
+  let start =
+    match Str.search_forward r s 0 with
+    | x -> scol + String.length (Str.matched_string s)
+    | exception Not_found -> scol + 7
+  in
+
+  let id =
+    match exp.desc with
+    | Let (Val (x, _), _) -> x
+    | _ -> failwith "no way!" in
+
+  let end_ = start + String.length id in
+
+  if start <= cnum && cnum <= end_ then Some (lnum, start, end_) else None
+
+let in_letrec_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int) (cnum : int) =
+  let loc = exp.loc in
+  let _, sln, scol = Location.get_pos_info loc.loc_start in
+
+  let s = slice pgmtxt sln scol in
+  let r = Str.regexp {|let rec |} in
+  let r' = Str.regexp {| = |} in
+
+  let f_start =
+    match Str.search_forward r s 0 with
+    | x -> scol + String.length (Str.matched_string s)
+    | exception Not_found -> scol + 7
+  in
+
+  let f, x =
+    match exp.desc with
+    | Let (Rec (f, x, _), _) -> f, x
+    | _ -> failwith "no way!" in
+
+  let f_end = f_start + String.length f in
+
+  let x_start =
+    match Str.search_forward r' s f_end with
+    | x -> scol + String.length (Str.matched_string s)
+    | exception Not_found -> scol + 10
+  in
+  
+  let x_end = x_start + String.length x in
+
+  if f_start <= cnum && cnum <= f_end
+    then Some (lnum, f_start, f_end)
+  else if x_start <= cnum && cnum <= x_end
+    then Some (lnum, x_start, x_end)
+  else None
+  
+let in_fn_range (pgmtxt : string) (exp : Syntax.expr) (lnum : int)
     (cnum : int) =
   let loc = exp.loc in
-  let _, _, scol = Location.get_pos_info loc.loc_start in
+  let _, sln, scol = Location.get_pos_info loc.loc_start in
 
-  let s = slice pgmtxt loc in
+  let s = slice pgmtxt sln scol in
   let r = Str.regexp {|fn |} in
-  let _ = Str.search_forward r s 0 in
-  let start = scol + String.length (Str.matched_string s) in
+
+  let start =
+    match Str.search_forward r s 0 with
+    | x -> scol + String.length (Str.matched_string s)
+    | exception Not_found -> scol + 3
+  in
 
   let id = match exp.desc with Fn (x, _) -> x | _ -> failwith "no way!" in
-
   let end_ = start + String.length id in
 
   if start <= cnum && cnum <= end_ then Some (lnum, start, end_) else None
@@ -295,8 +367,34 @@ let infer_sub (pgmtxt : string) (ast : Syntax.expr) (exp : Syntax.expr)
   | Const (String _) -> Some ("string", range)
   | Const (Int _) -> Some ("int", range)
   | Const (Bool _) -> Some ("bool", range)
+  | Let (Val (id, e1), e2) -> (
+      let range_opt = in_letval_range pgmtxt exp lnum cnum in
+      match range_opt with
+      | Some (lnum, start, end_) ->
+          let start_pos =
+            `Assoc [ ("line", `Int lnum); ("character", `Int start) ]
+          in
+          let end_pos =
+            `Assoc [ ("line", `Int lnum); ("character", `Int end_) ]
+          in
+          let range = `Assoc [ ("start", start_pos); ("end", end_pos) ] in
+
+          let fty_str =
+            try
+              let fty = Inference.check_sub ast e1 in
+              Inference.string_of_ty fty
+            with Inference.Unification_error_with_loc (msg, _) -> msg
+          in
+
+          Some (fty_str, range)
+      | None -> (
+          match Inference.check_sub ast exp with
+          | x -> Some (Inference.string_of_ty x, range)
+          | exception _ -> None) )
+  | Let (Rec (f, x, e1), e2) -> 
+      None
   | Fn (id, expr) -> (
-      let range_opt = in_param_range pgmtxt exp lnum cnum in
+      let range_opt = in_fn_range pgmtxt exp lnum cnum in
       match range_opt with
       | Some (lnum, start, end_) ->
           let start_pos =
@@ -341,7 +439,7 @@ let on_hover id params =
 
   match st with
   | Ast ast -> (
-      match subexp_at_pos ast lnum cnum with
+      match subexp_at_pos ast pgmtxt lnum cnum with
       | Some texp ->
           let value, range =
             match infer_sub pgmtxt ast texp lnum cnum with
@@ -365,28 +463,7 @@ let on_hover id params =
           output_json response;
           output_log (Rspn response)
       | None ->
-          let value_ = "Let?" in
-          let value = `String ("```ocaml\n" ^ value_ ^ "\n```") in
-          let content =
-            `Assoc [ ("kind", `String "markdown"); ("value", value) ]
-          in
-
-          let start_pos =
-            `Assoc [ ("line", `Int lnum); ("character", `Int cnum) ]
-          in
-          let end_pos =
-            `Assoc [ ("line", `Int lnum); ("character", `Int cnum) ]
-          in
-          let range = `Assoc [ ("start", start_pos); ("end", end_pos) ] in
-
-          let response =
-            `Assoc
-              [
-                ("id", `Int id);
-                ("result", `Assoc [ ("contents", content); ("range", range) ]);
-              ]
-          in
-
+          let response = `Assoc [ ("id", `Int id); ("result", `Null) ] in
           output_json response;
           output_log (Rspn response))
   | _ ->
