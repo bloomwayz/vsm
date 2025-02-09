@@ -9,6 +9,15 @@ let make_loc (startpos, endpos) =
 
 let mkexp ~loc d = mk ~loc:(make_loc loc) d
 
+let mkdcl ~loc d = mk_ ~loc:(make_loc loc) d
+
+let rec desugar_let = function
+  | [], _ -> raise Empty_binding
+  | [ { decl_; loc } ], e -> Let (decl_, e)
+  | { decl_; loc } :: xs, e ->
+    let desc = desugar_let (xs, e) in
+    Let (decl_, { desc; loc })
+
 let select = function
   | e, 1 -> Fst e
   | e, 2 -> Snd e
@@ -47,6 +56,7 @@ let select = function
 %%
 
 %inline mkexp(symb): symb { mkexp ~loc:$sloc $1 }
+%inline mkdcl(symb): symb { mkdcl ~loc:$sloc $1 }
 
 prog:
     | expr; EOF { $1 }
@@ -68,10 +78,10 @@ expr:
     | PLUS { Add }
     | MINUS { Sub }
 lexpr:
-    | mkexp(LET; x = decl; IN; e = expr; END { Let (x, e) }) { $1 }
+    | mkexp(LET; decls = list(decl); IN; body = expr; END { desugar_let (decls, body) }) { $1 }
 decl:
-    | VAL; x = ID; EQ; e = expr { Val (x, e) }
-    | REC; f = ID; EQ; FN; x = ID; RARROW; e = expr { Rec (f, x, e) }
+    | mkdcl(VAL; x = ID; EQ; e = expr { Val (x, e) }) { $1 }
+    | mkdcl(REC; f = ID; EQ; FN; x = ID; RARROW; e = expr { Rec (f, x, e) }) { $1 }
 apply:
     | atom { $1 }
     | mkexp(f = apply; x = atom { App (f, x) }) { $1 }

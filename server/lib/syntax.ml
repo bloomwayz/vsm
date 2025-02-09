@@ -8,7 +8,7 @@ and desc =
   | Var of id
   | Fn of id * expr
   | App of expr * expr
-  | Let of decl * expr
+  | Let of decl_ * expr
   | If of expr * expr * expr
   | Bop of bop * expr * expr
   | Read
@@ -24,7 +24,9 @@ and desc =
 and const = String of string | Int of int | Bool of bool
 and id = string
 
-and decl =
+and decl = { decl_: decl_; loc: Location.t }
+
+and decl_ =
   | Rec of id * id * expr (* Recursive fn (fun_id, arg_id, body) *)
   | Val of id * expr (* Value, including non-recursive fns *)
 
@@ -39,3 +41,5 @@ type typ =
   | T_arrow of typ * typ
 
 let mk ~loc desc = { desc; loc } 
+
+let mk_ ~loc decl_ = { decl_; loc }
