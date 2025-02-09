@@ -11,12 +11,12 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-	const command = '/Users/young/Desktop/vsm/server/_build/default/bin/main.exe';
+	const command = path.join(context.extensionPath, 'server', '_build', 'default', 'bin', 'main.exe');
 
-	const serverOptions: ServerOptions = {
-		run: { command, transport: TransportKind.stdio },
-		debug: { command, transport: TransportKind.stdio }
-	};
+    const serverOptions: ServerOptions = {
+        run: { command, transport: TransportKind.stdio },
+        debug: { command, transport: TransportKind.stdio }
+    };
 
 	// Options to control the language client
 	const clientOptions: LanguageClientOptions = {
