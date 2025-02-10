@@ -3,4 +3,4 @@
  (name main)
  (preprocess
   (pps ppx_jane))
- (libraries server ocaml-compiler-libs.common core core_unix.command_unix core_unix.filename_unix str yojson))
+ (libraries language ocaml-compiler-libs.common core core_unix.command_unix core_unix.filename_unix str yojson))

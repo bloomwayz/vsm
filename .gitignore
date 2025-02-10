@@ -1,4 +1,4 @@
-server/lib/inference.ml
+server/language/inference.ml
 log.txt
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,node,ocaml
