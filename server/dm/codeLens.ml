@@ -14,12 +14,10 @@ open Inference
 
 module CodeLensResult = struct
   type t = codelens list
-  [@@deriving yojson]
 
   and codelens =
     { range : Range.t
     ; command : command }
-  [@@deriving yojson]
 
   and command =
     { title : string
