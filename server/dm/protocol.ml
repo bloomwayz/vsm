@@ -18,7 +18,7 @@ type obj =
 and request =
   { id : int
   ; method_ : string
-  ; params : (string * Yojson.Safe.t) list
+  ; params : Yojson.Safe.t
   }
 
 and response =
@@ -36,7 +36,7 @@ and notification =
 let request_of_yojson yojson =
   let id = yojson |> member "id" |> to_int in
   let method_ = yojson |> member "method" |> to_string in
-  let params = yojson |> member "params" |> to_assoc in
+  let params = yojson |> member "params" in
   { id; method_; params }
 
 let response_of_yojson yojson =
@@ -67,7 +67,7 @@ let yojson_of_request { id; method_; params } =
   `Assoc
   [ ( "id", `Int id )
   ; ( "method", `String method_ )
-  ; ( "params", `Assoc params )
+  ; ( "params", params )
   ]
 
 let yojson_of_response { id; result } =
