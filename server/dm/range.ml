@@ -47,4 +47,9 @@ module Range = struct
   let from_tuples stup etup = create
     ~start:(Position.create ~ln:(fst stup) ~col:(snd stup))
     ~end_:(Position.create ~ln:(fst etup) ~col:(snd etup))
+
+  let from_location (loc : Location.t) =
+    let _, sln, scl = Location.get_pos_info loc.loc_start in
+    let _, eln, ecl = Location.get_pos_info loc.loc_end in
+    from_tuples (sln - 1, scl) (eln - 1, ecl)
 end

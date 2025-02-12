@@ -8,6 +8,9 @@
 open Str
 open Language.Poly_checker
 
+exception Unbound_variable = Unbound_variable
+exception Unification_error_with_loc = Unification_error_with_loc
+
 let check_top = check_top
 
 let check_sub = check_sub

@@ -36,9 +36,10 @@ let dispatch (obj : Protocol.obj) =
     | "initialize" -> Init.run id params
     (* | "textDocument/hover" -> Hover.run *)
     | "textDocument/codeLens" -> CodeLens.run id params
-    (* | "textDocument/diagnostic" -> Diagnostic.run
-    | "textDocument/semanticTokens/full" -> Tokens.run *)
-    | unknown_method -> failwith ("unknown method: " ^ unknown_method)
+    | "textDocument/diagnostic" -> Diagnostic.push id params
+    (* | "textDocument/semanticTokens/full" -> Tokens.run *)
+    | _ -> ()
+    (* | unknown_method -> failwith ("unknown method: " ^ unknown_method) *)
   in
 
   let on_notification method_ params =
@@ -47,7 +48,8 @@ let dispatch (obj : Protocol.obj) =
     | "textDocument/didOpen" -> Document.on_did_open params
     | "textDocument/didChange" -> Document.on_did_change params
     | "textDocument/didClose" -> Document.on_did_close params
-    | unknown_method -> failwith ("unknown method: " ^ unknown_method)
+    | _ -> ()
+    (* | unknown_method -> failwith ("unknown method: " ^ unknown_method) *)
   in
   
   match obj with
