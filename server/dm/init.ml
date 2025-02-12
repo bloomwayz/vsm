@@ -179,6 +179,6 @@ let initializeResult = InitializeResult.create
   ~capabilities
   ~serverInfo
 
-let on_initialize id params =
+let run id params =
   let result = InitializeResult.yojson_of_t initializeResult in
   send (Resp { id; result })

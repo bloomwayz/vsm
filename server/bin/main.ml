@@ -33,10 +33,10 @@ let read_content len =
 let dispatch (obj : Protocol.obj) = 
   let on_request id method_ params =
     match method_ with
-    | "initialize" -> Init.on_initialize id params
-    (* | "textDocument/hover" -> Hover.run
-    | "textDocument/codeLens" -> CodeLens.run
-    | "textDocument/diagnostic" -> Diagnostic.run
+    | "initialize" -> Init.run id params
+    (* | "textDocument/hover" -> Hover.run *)
+    | "textDocument/codeLens" -> CodeLens.run id params
+    (* | "textDocument/diagnostic" -> Diagnostic.run
     | "textDocument/semanticTokens/full" -> Tokens.run *)
     | unknown_method -> failwith ("unknown method: " ^ unknown_method)
   in
