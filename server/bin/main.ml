@@ -34,7 +34,7 @@ let dispatch (obj : Protocol.obj) =
   let on_request id method_ params =
     match method_ with
     | "initialize" -> Init.run id params
-    (* | "textDocument/hover" -> Hover.run *)
+    | "textDocument/hover" -> Hover.run id params
     | "textDocument/codeLens" -> CodeLens.run id params
     | "textDocument/diagnostic" -> Diagnostic.push id params
     (* | "textDocument/semanticTokens/full" -> Tokens.run *)

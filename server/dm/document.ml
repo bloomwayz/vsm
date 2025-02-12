@@ -68,8 +68,8 @@ let ( @- ) states uri =
 
 let states = States.init ()
 
+let finds = States.find states
 let findr = States.find_rstate states
-
 let findp = States.find_pstate states
 
 (** parse string from params **)
