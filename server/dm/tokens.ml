@@ -98,9 +98,9 @@ let rec get_token_type : Parser.token -> TokenType.t option = function
   | VAL | FN | REC | LET | IN | END
   | IF | THEN | ELSE -> Some Keyword
   | READ | WRITE
-  | EQ | AND | OR | PLUS | MINUS
+  | AND | OR | PLUS | MINUS
   | COLEQ | MALLOC | BANG -> Some Function
-  | RARROW -> Some Operator
+  | EQ | RARROW -> Some Operator
   | COMMENT _ -> Some Comment
   | _ -> None
 
