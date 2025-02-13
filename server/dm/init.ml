@@ -137,7 +137,7 @@ let codeLensProvider = ServerCapabilities.create_codeLensOptions
 let foldingRangeProvider = true
 
 let tokenTypes =
-  [ "namespace"
+  [ "enum"
   ; "parameter"
   ; "variable"
   ; "function"

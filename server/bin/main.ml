@@ -37,7 +37,7 @@ let dispatch (obj : Protocol.obj) =
     | "textDocument/hover" -> Hover.run id params
     | "textDocument/codeLens" -> CodeLens.run id params
     | "textDocument/diagnostic" -> Diagnostic.push id params
-    (* | "textDocument/semanticTokens/full" -> Tokens.run *)
+    | "textDocument/semanticTokens/full" -> Tokens.run id params
     | _ -> ()
     (* | unknown_method -> failwith ("unknown method: " ^ unknown_method) *)
   in
