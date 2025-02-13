@@ -1,4 +1,4 @@
-server/language/inference.ml
+server/language/poly_checker.ml
 log.txt
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,node,ocaml

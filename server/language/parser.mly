@@ -37,6 +37,7 @@ let select = function
 %token COLEQ MALLOC BANG
 %token LPAREN RPAREN
 %token RARROW DOT COMMA SEMI
+%token <string> COMMENT
 %token EOF
 
 %nonassoc RARROW
@@ -59,7 +60,12 @@ let select = function
 %inline mkdcl(symb): symb { mkdcl ~loc:$sloc $1 }
 
 prog:
-    | expr; EOF { $1 }
+    | cprog; EOF { $1 }
+cprog:
+    | COMMENT; expr; COMMENT { $2 }
+    | COMMENT; expr { $2 }
+    | expr; COMMENT { $1 }
+    | expr { $1 }
 expr:
     | apply { $1 }
     | lexpr { $1 }
