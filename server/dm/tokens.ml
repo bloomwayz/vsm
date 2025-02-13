@@ -90,19 +90,19 @@ module Token = struct
     tokens |> sort |> (deltaize [])
 end
 
-let rec get_token_type : Parser.token -> TokenType.t option = function
-  | TRUE | FALSE -> Some Enum
-  | INT _ -> Some Number
-  | ID _ -> Some Variable
-  | STRING _ -> Some String_
+let rec get_token_type : Parser.token -> (TokenType.t option * string option) = function
+  | TRUE | FALSE -> Some Enum, None
+  | INT _ -> Some Number, None
+  | ID _ -> Some Variable, None
+  | STRING _ -> Some String_, None
   | VAL | FN | REC | LET | IN | END
-  | IF | THEN | ELSE -> Some Keyword
+  | IF | THEN | ELSE -> Some Keyword, None
   | READ | WRITE
   | AND | OR | PLUS | MINUS
-  | COLEQ | MALLOC | BANG -> Some Function
-  | EQ | RARROW -> Some Operator
-  | COMMENT _ -> Some Comment
-  | _ -> None
+  | COLEQ | MALLOC | BANG -> Some Function, None
+  | EQ | RARROW -> Some Operator, None
+  | COMMENT c -> Some Comment, Some c
+  | _ -> None, None
 
 let highlight lexbuf =
   let acc = ref [] in
@@ -113,12 +113,18 @@ let highlight lexbuf =
     | token ->
         let _, sln, scl = Location.get_pos_info lexbuf.lex_start_p in
         let _, eln, ecl = Location.get_pos_info lexbuf.lex_curr_p in
-        let range = Range.from_tuples (sln - 1, scl) (eln - 1, ecl) in
         begin match (get_token_type token) with
-        | Some type_ -> acc := !acc @ [ Token.from_range range ~type_ ]
-        | None -> ()
+        | Some Comment, Some c ->
+          let len = String.length c in
+          let range = Range.from_tuples (sln - 1, ecl - len) (eln - 1, ecl) in
+          acc := !acc @ [ Token.from_range range ~type_:Comment ]
+        | Some type_, _ ->
+          let range = Range.from_tuples (sln - 1, scl) (eln - 1, ecl) in
+          acc := !acc @ [ Token.from_range range ~type_ ]
+        | None, _ -> ()
         end;
         inner ()
+    | exception _ -> inner ()
   in
 
   inner (); !acc
