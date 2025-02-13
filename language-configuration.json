@@ -20,8 +20,8 @@
     ],
     "indentationRules": {
         "increaseIndentPattern": 
-        "(^\\s*(let)\\b.*)|(=>( end)?$)",
+        "(^\\s*(let)\\b.*)|(=>( end)?$)|(^in$)",
         "decreaseIndentPattern": 
-        "^in"
+        "in$"
     }
 }
