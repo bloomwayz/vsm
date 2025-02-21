@@ -4,7 +4,6 @@
     },
     // symbols used as brackets
     "brackets": [
-        ["let", "end"],
         ["(", ")"]
     ],
     // symbols that are auto closed when typing
