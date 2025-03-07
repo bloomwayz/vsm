@@ -8,6 +8,7 @@
 open Str
 open Range
 open Document
+open Language
 open Language.Syntax
 open Language.Poly_checker
 
@@ -88,136 +89,161 @@ let slice txt lnum cnum =
 
   String.sub txt start (txtlen - start)
 
-let in_letval_range (pgmtxt : string) (exp : expr) (pos : Position.t) =
+let string_of_token (token : Parser.token) =
+  match token with
+  | WRITE -> "'a -> 'a"
+  | TRUE | FALSE -> "bool"
+  | READ -> "int"
+  | PLUS | MINUS -> "int -> int -> int"
+  | OR | AND -> "bool -> bool -> bool"
+  | MALLOC -> "'a -> 'a loc"
+  | COLEQ -> "'a loc -> 'a -> 'a"
+  | BANG -> "'a loc -> 'a"
+  | STRING _ -> "string" 
+  | INT _ -> "int"
+  | _ -> ""
+  
+let token_with_lexbuf (lexbuf : Lexing.lexbuf) (pos : Position.t) =
   let ln, col = pos.ln, pos.col in
+  let rec inner () =
+    let token = Lexer.read lexbuf in
+    let _, sln, scl = Location.get_pos_info lexbuf.lex_start_p in
+    let _, eln, ecl = Location.get_pos_info lexbuf.lex_curr_p in
+    let sln, eln = sln - 1, eln - 1 in
+    let range = Range.from_tuples (sln, scl) (eln, ecl) in
 
-  let range = Range.from_location exp.loc in
-  let sln, scl = range.start.ln, range.start.col in
+    if (sln <= ln && ln <= eln) && (scl <= col && col <= ecl) then
+      Some (token, range)
+    else inner ()
 
-  let s = slice pgmtxt sln scl in
-  let r = Str.regexp {|let val |} in
-
-  let start =
-    match Str.search_forward r s 0 with
-    | x -> scl + String.length (Str.matched_string s)
-    | exception Not_found -> scl + 7
   in
+  inner ()
 
-  let id =
-    match exp.desc with
-    | Let (Val (x, _), _) -> x
-    | _ -> failwith "no way!" in
 
-  let end_ = start + String.length id in
-
-  if start <= col && col <= end_ then Some (ln, start, end_) else None
-
-let in_letrec_range (pgmtxt : string) (exp : expr) (lnum : int) (cnum : int) =
-  let loc = exp.loc in
-  let _, sln, scol = Location.get_pos_info loc.loc_start in
-
-  let s = slice pgmtxt sln scol in
-  let r = Str.regexp {|let rec |} in
-  let r' = Str.regexp {| = |} in
-
-  let f_start =
-    match Str.search_forward r s 0 with
-    | x -> scol + String.length (Str.matched_string s)
-    | exception Not_found -> scol + 7
-  in
-
-  let f, x =
-    match exp.desc with
-    | Let (Rec (f, x, _), _) -> f, x
-    | _ -> failwith "no way!" in
-
-  let f_end = f_start + String.length f in
-
-  let x_start =
-    match Str.search_forward r' s f_end with
-    | x -> scol + String.length (Str.matched_string s)
-    | exception Not_found -> scol + 10
-  in
+let infer_var (id : string) (top : expr) (sub : expr) : string =
+  match sub.desc with
+  | Var x ->
+      (try
+        let fty = check_sub top sub in
+        string_of_ty fty
+      with Unification_error_with_loc (msg, _) -> msg)
+  | Let (Val (x, e1), _) ->
+      (try
+        let fty = check_sub top e1 in
+        string_of_ty fty
+      with Unification_error_with_loc (msg, _) -> msg)
+  | Let (Rec (f, x, e1), e2) ->
+      let fexp = { desc = Fn (x, e1); loc = sub.loc } in
+      begin if id = f then
+        (try
+          let fty = check_sub top fexp in
+          string_of_ty fty
+        with Unification_error_with_loc (msg, _) -> msg)
+      else if id = x then
+        (try
+          let fty = string_of_ty (check_sub top fexp) in
+          let i = Str.search_forward (Str.regexp {| -> |}) fty 0 in
+          String.sub fty 0 i
+        with Unification_error_with_loc (msg, _) -> msg)
+      else
+        failwith "id not matched"
+      end
+  | Fn (x, e) ->
+      (try
+        let fty = check_sub top sub in
+        let fty = string_of_ty fty in
+        let r = Str.regexp {| -> |} in
+        let i = Str.search_forward r fty 0 in
+        String.sub fty 0 i
+      with Unification_error_with_loc (msg, _) -> msg)
+  | _ -> failwith "Unreachable"
   
-  let x_end = x_start + String.length x in
+(* let infer_letval (top : expr) (sub : expr) = *)
 
-  if f_start <= cnum && cnum <= f_end
-    then Some (lnum, f_start, f_end)
-  else if x_start <= cnum && cnum <= x_end
-    then Some (lnum, x_start, x_end)
-  else None
-  
-let in_fn_range (pgmtxt : string) (exp : expr) (lnum : int)
-    (cnum : int) =
-  let loc = exp.loc in
-  let _, sln, scol = Location.get_pos_info loc.loc_start in
+let token_at_pos (raw : string) (pos : Position.t) =
+  match Lexing.from_string raw with
+  | lexbuf -> token_with_lexbuf lexbuf pos
+  | exception _ -> None
 
-  let s = slice pgmtxt sln scol in
-  let r = Str.regexp {|fn |} in
+let infer_fn (top : expr) (sub : expr) =
+  let range = Range.from_location sub.loc in
+  match check_sub top sub with
+  | x -> Some (string_of_ty x, range)
+  | exception _ -> None
 
-  let start =
-    match Str.search_forward r s 0 with
-    | x -> scol + String.length (Str.matched_string s)
-    | exception Not_found -> scol + 3
-  in
+let infer_letval (top : expr) (sub : expr) =
+  match sub.desc with
+  | Let (Val (x, e1), _) ->
+      (let fty_str =
+        try
+          let fty = check_sub top e1 in
+          string_of_ty fty
+        with Unification_error_with_loc (msg, _) -> msg
+      in
+      let r = Range.from_location sub.loc in
+      let sln, scl = r.start.ln, r.start.col in
+      let _, eln, ecl = Location.get_pos_info e1.loc.loc_end in
+      let r' = Range.from_tuples (sln, scl) (eln, ecl) in
+      Some (fty_str, r'))
+  | _ -> None
 
-  let id = match exp.desc with Fn (x, _) -> x | _ -> failwith "no way!" in
-  let end_ = start + String.length id in
+let infer_letrec (top : expr) (sub : expr) =
+  match sub.desc with
+  | Let (Rec (f, x, e1), e2) ->
+    let range = Range.from_location sub.loc in
+    begin match check_sub top sub with
+    | x -> Some (string_of_ty x, range)
+    | exception _ -> None
+    end
+  | Fst _ | Snd _ | Pair _ ->
+    let range = Range.from_location sub.loc in
+    begin match check_sub top sub with
+    | x -> Some (string_of_ty x, range)
+    | exception _ -> None
+    end
+  | _ -> failwith "Unreachable"
 
-  if start <= cnum && cnum <= end_ then Some (lnum, start, end_) else None
-
-let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) =
+let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) : (string * Range.t) option =
   let pgmtxt = st.rawState in
-  let ast = match st.parsedState with
+  let token_opt = token_at_pos pgmtxt curr_pos in
+
+  (* let ast = match st.parsedState with
     | Ast x -> x
     | Fail _ -> failwith "meaningless branch; refactor needed"
+  in *)
+  let subexp = match (subexp_at_pos exp curr_pos) with
+    | Some e -> e | _ -> failwith "Subexpression unfound"
   in
-  let range = Range.from_location exp.loc in
-  let lnum, cnum = curr_pos.ln, curr_pos.col in
+  (* let range = Range.from_location exp.loc in *)
 
-  match exp.desc with
-  | Const (String _) -> Some ("string", range)
-  | Const (Int _) -> Some ("int", range)
-  | Const (Bool _) -> Some ("bool", range)
-  | Let (Val (id, e1), e2) -> (
-      let range_opt = in_letval_range pgmtxt exp curr_pos in
-      match range_opt with
-      | Some (lnum, start, end_) ->
-          let range = Range.from_tuples (lnum, start) (lnum, end_) in
-          let fty_str =
-            try
-              let fty = check_sub ast e1 in
-              string_of_ty fty
-            with Unification_error_with_loc (msg, _) -> msg
-          in
-          Some (fty_str, range)
-      | None -> (
-          match check_sub ast exp with
-          | x -> Some (string_of_ty x, range)
-          | exception _ -> None) )
-  | Let (Rec (f, x, e1), e2) -> 
-      None
-  | Fn (id, expr) -> (
-      let range_opt = in_fn_range pgmtxt exp lnum cnum in
-      match range_opt with
-      | Some (lnum, start, end_) ->
-          let range = Range.from_tuples (lnum, start) (lnum, end_) in
-          let fty_str =
-            try
-              let fty = check_sub ast exp in
-              let fty = string_of_ty fty in
-              let r = Str.regexp {| -> |} in
-              let i = Str.search_forward r fty 0 in
-              String.sub fty 0 i
-            with Unification_error_with_loc (msg, _) -> msg
-          in
-
-          Some (fty_str, range)
-      | None -> (
-          match check_sub ast exp with
-          | x -> Some (string_of_ty x, range)
-          | exception _ -> None))
-  | _ -> (
-      match check_sub ast exp with
-      | x -> Some (string_of_ty x, range)
-      | exception _ -> None)
+  match token_opt with
+  | Some (ID x, range) -> Some (infer_var x exp subexp, range)
+  | Some (VAL, range) -> infer_letval exp subexp
+  | Some (REC, range) -> infer_letrec exp subexp
+  | Some (FN, range) | Some (RARROW, range) -> infer_fn exp subexp
+  | Some (EQ, range) ->
+    begin match subexp.desc with
+    | Let (Val (_, _), _) -> infer_letval exp subexp
+    | Let (Rec (_, _, _), _) -> infer_letrec exp subexp
+    | Bop (Eq, _, _) -> Some ("'a -> 'a -> 'a", range)
+    | _ -> failwith "Unreachable"
+    end
+  | Some (INT 1, range) ->
+    begin match subexp.desc with
+    | Fst _ -> infer_letrec exp subexp
+    | Const (Int 1) -> Some ("int", range)
+    | _ -> failwith "Unreachable"
+    end
+  | Some (INT 2, range) ->
+    begin match subexp.desc with
+    | Fst _ -> infer_letrec exp subexp
+    | Const (Int 2) -> Some ("int", range)
+    | _ -> failwith "Unreachable"
+    end
+  | Some (DOT, range) | Some (COMMA, range) ->
+    infer_letrec exp subexp
+  | Some (token, range) ->
+      begin match string_of_token token with
+      | "" -> None | s -> Some (s, range)
+      end
+  | _ -> None

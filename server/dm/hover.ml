@@ -47,15 +47,9 @@ let compute params =
   in
   match st.parsedState with
   | Ast ast ->
-      let subexp = subexp_at_pos ast curr_pos in
-      begin match subexp with
-      | Some x ->
-          begin match (infer_sub st x curr_pos) with
-          | Some (value, range) ->
-              let value = undisclose value in
-              HoverResult.create ~value ~range
-          | None -> None
-          end
+      begin match (infer_sub st ast curr_pos) with
+      | Some (value, range) ->
+        HoverResult.create ~value ~range
       | None -> None
       end
   | Fail _ -> None
