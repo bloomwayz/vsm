@@ -24,6 +24,12 @@ module Position = struct
     `Assoc
     [ ( "line", `Int t.ln )
     ; ( "character", `Int t.col ) ]
+
+  let ( < ) p1 p2 =
+    (p1.ln < p2.ln) || (p1.ln = p2.ln && p1.col < p2.col)
+
+  let ( <= ) p1 p2 =
+    (p1 < p2) || (p1.ln = p2.ln && p1.col <= p2.col)
 end
 
 module Range = struct
@@ -52,4 +58,7 @@ module Range = struct
     let _, sln, scl = Location.get_pos_info loc.loc_start in
     let _, eln, ecl = Location.get_pos_info loc.loc_end in
     from_tuples (sln - 1, scl) (eln - 1, ecl)
+
+  let contains (r1 : t) (r2 : t) =
+    r1.start <= r2.start && r2.end_ <= r1.end_
 end

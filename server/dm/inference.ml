@@ -57,18 +57,10 @@ let rec traverse_ast (exp : expr) (acc : expr list) =
       traverse_ast e3 acc''
 
 let in_range (pos : Position.t) (exp : expr) =
-  let ln = pos.ln in
-  let col = pos.col in
-
-  let range = Range.from_location (exp.loc) in
-  let start, end_ = range.start, range.end_ in
-  let sln, scl = start.ln, start.col in
-  let eln, ecl = end_.ln, end_.col in
-
-  (sln < ln && ln < eln) ||
-  (sln = ln && ln < eln && scl <= col) ||
-  (sln < ln && ln = eln && col <= ecl) ||
-  (sln = ln && ln = eln && scl <= col && col <= ecl)
+  let ln, col = pos.ln, pos.col in
+  let cur_range = Range.from_tuples (ln, col) (ln, col) in
+  let exp_range = Range.from_location (exp.loc) in
+  Range.contains exp_range cur_range
 
 let subexp_at_pos (ast : expr) (pos : Position.t) =
   let subexps = traverse_ast ast [] in
