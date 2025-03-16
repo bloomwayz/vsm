@@ -20,6 +20,6 @@
         "increaseIndentPattern": 
         "(^\\s*(let)\\b.*)|(=>( end)?$)|(^in$)",
         "decreaseIndentPattern": 
-        "in$"
+        "(in|end)$"
     }
 }
