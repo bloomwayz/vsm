@@ -1,4 +1,5 @@
 %{
+open Lexing
 open Syntax
 
 exception Empty_binding
@@ -38,7 +39,7 @@ let select = function
 %token COLEQ MALLOC BANG
 %token LPAREN RPAREN
 %token RARROW DOT COMMA SEMI
-%token <string> COMMENT
+%token <string * Lexing.position * Lexing.position> COMMENT
 %token EOF
 
 %nonassoc RARROW

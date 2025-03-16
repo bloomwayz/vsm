@@ -11,6 +11,7 @@ open Protocol
 open Document
 open Range
 open Language
+open Lexing
 
 module SemanticTokens = struct
   type t = result option
@@ -90,7 +91,7 @@ module Token = struct
     tokens |> sort |> (deltaize [])
 end
 
-let rec get_token_type : Parser.token -> (TokenType.t option * string option) = function
+let rec get_token_type : Parser.token -> (TokenType.t option * Range.t option) = function
   | TRUE | FALSE -> Some Enum, None
   | INT _ -> Some Number, None
   | ID _ -> Some Variable, None
@@ -101,7 +102,10 @@ let rec get_token_type : Parser.token -> (TokenType.t option * string option) = 
   | AND | OR | PLUS | MINUS
   | COLEQ | MALLOC | BANG -> Some Function, None
   | EQ | RARROW -> Some Operator, None
-  | COMMENT c -> Some Comment, Some c
+  | COMMENT (c, loc_start, loc_end) ->
+    let cloc = Location.{ loc_start; loc_end; loc_ghost = false } in
+    let r = Range.from_location cloc in
+    Some Comment, Some r
   | _ -> None, None
 
 let highlight lexbuf =
@@ -113,10 +117,9 @@ let highlight lexbuf =
     | token ->
         let _, sln, scl = Location.get_pos_info lexbuf.lex_start_p in
         let _, eln, ecl = Location.get_pos_info lexbuf.lex_curr_p in
+
         begin match (get_token_type token) with
-        | Some Comment, Some c ->
-          let len = String.length c in
-          let range = Range.from_tuples (sln - 1, ecl - len) (eln - 1, ecl) in
+        | Some Comment, Some range ->
           acc := !acc @ [ Token.from_range range ~type_:Comment ]
         | Some type_, _ ->
           let range = Range.from_tuples (sln - 1, scl) (eln - 1, ecl) in

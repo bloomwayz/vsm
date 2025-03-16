@@ -6,6 +6,9 @@ exception SyntaxError of string
 
 let comment_depth = ref 0
 
+let comment_spos = ref dummy_pos
+let comment_epos = ref dummy_pos
+
 let keywords =
   String_dict.of_alist_exn
     [
@@ -38,7 +41,9 @@ let open_comment depth acc comment lexbuf =
 let close_comment depth acc comment lexbuf =
   decr depth;
   if !depth > 0 then comment acc lexbuf
-  else String.concat "" (List.rev acc)
+  else
+    (comment_epos := lexbuf.lex_curr_p;
+    String.concat "" (List.rev acc))
 }
 
 let blank = [' ' '\t']+
@@ -57,7 +62,12 @@ rule read =
   | int as n { INT (to_int n) }
   | id as s  { match String_dict.find keywords s with Some s -> s | None -> ID s }
   | str as s { STRING s }
-  | "(*"     { comment_depth := 1; let c = comment ["(*"] lexbuf in COMMENT c }
+  | "(*"     {
+                comment_depth := 1;
+                comment_spos := lexbuf.lex_start_p;
+                let c = comment ["(*"] lexbuf in
+                COMMENT (c, !comment_spos, !comment_epos)
+              }
   | "=>"     { RARROW }
   | ":="     { COLEQ }
   | '='      { EQ }
