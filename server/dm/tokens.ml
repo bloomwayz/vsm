@@ -11,7 +11,6 @@ open Protocol
 open Document
 open Range
 open Language
-open Lexing
 
 module SemanticTokens = struct
   type t = result option
