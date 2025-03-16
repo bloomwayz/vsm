@@ -14,8 +14,9 @@ let mkdcl ~loc d = mk_ ~loc:(make_loc loc) d
 let rec desugar_let = function
   | [], _ -> raise Empty_binding
   | [ { decl_; loc } ], e -> Let (decl_, e)
-  | { decl_; loc } :: xs, e ->
-    let desc = desugar_let (xs, e) in
+  | decl1 :: decl2 :: xs, e ->
+    let decl_, loc = decl1.decl_, decl2.loc in
+    let desc = desugar_let (decl2 :: xs, e) in
     Let (decl_, { desc; loc })
 
 let select = function
