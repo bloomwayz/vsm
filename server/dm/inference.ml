@@ -57,10 +57,8 @@ let rec traverse_ast (exp : expr) (acc : expr list) =
       traverse_ast e3 acc''
 
 let in_range (pos : Position.t) (exp : expr) =
-  let ln, col = pos.ln, pos.col in
-  let cur_range = Range.from_tuples (ln, col) (ln, col) in
   let exp_range = Range.from_location (exp.loc) in
-  Range.contains exp_range cur_range
+  Range.contains_p exp_range pos
 
 let subexp_at_pos (ast : expr) (pos : Position.t) =
   let subexps = traverse_ast ast [] in
@@ -96,21 +94,13 @@ let string_of_token (token : Parser.token) =
   | _ -> ""
   
 let token_with_lexbuf (lexbuf : Lexing.lexbuf) (pos : Position.t) =
-  let ln, col = pos.ln, pos.col in
   let rec inner () =
     let token = Lexer.read lexbuf in
-    let _, sln, scl = Location.get_pos_info lexbuf.lex_start_p in
-    let _, eln, ecl = Location.get_pos_info lexbuf.lex_curr_p in
-    let sln, eln = sln - 1, eln - 1 in
-    let range = Range.from_tuples (sln, scl) (eln, ecl) in
-
-    if (sln <= ln && ln <= eln) && (scl <= col && col <= ecl) then
-      Some (token, range)
+    let range = Range.from_lexbuf lexbuf in
+    if Range.contains_p range pos then Some (token, range)
     else inner ()
-
   in
   inner ()
-
 
 let infer_var (id : string) (top : expr) (sub : expr) : string =
   match sub.desc with
@@ -175,7 +165,7 @@ let infer_letval (top : expr) (sub : expr) =
       let r = Range.from_location sub.loc in
       let sln, scl = r.start.ln, r.start.col in
       let _, eln, ecl = Location.get_pos_info e1.loc.loc_end in
-      let r' = Range.from_tuples (sln, scl) (eln, ecl) in
+      let r' = Range.from_tuples (sln, scl) (eln - 1, ecl) in
       Some (fty_str, r'))
   | _ -> None
 

@@ -114,14 +114,11 @@ let highlight lexbuf =
     match Lexer.read lexbuf with
     | EOF -> ()
     | token ->
-        let _, sln, scl = Location.get_pos_info lexbuf.lex_start_p in
-        let _, eln, ecl = Location.get_pos_info lexbuf.lex_curr_p in
-
         begin match (get_token_type token) with
         | Some Comment, Some range ->
           acc := !acc @ [ Token.from_range range ~type_:Comment ]
         | Some type_, _ ->
-          let range = Range.from_tuples (sln - 1, scl) (eln - 1, ecl) in
+          let range = Range.from_lexbuf lexbuf in
           acc := !acc @ [ Token.from_range range ~type_ ]
         | None, _ -> ()
         end;

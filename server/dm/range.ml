@@ -54,11 +54,20 @@ module Range = struct
     ~start:(Position.create ~ln:(fst stup) ~col:(snd stup))
     ~end_:(Position.create ~ln:(fst etup) ~col:(snd etup))
 
-  let from_location (loc : Location.t) =
-    let _, sln, scl = Location.get_pos_info loc.loc_start in
-    let _, eln, ecl = Location.get_pos_info loc.loc_end in
+  let from_pos (start_p : Lexing.position) (end_p : Lexing.position) =
+    let _, sln, scl = Location.get_pos_info start_p in
+    let _, eln, ecl = Location.get_pos_info end_p in
     from_tuples (sln - 1, scl) (eln - 1, ecl)
+
+  let from_location (loc : Location.t) =
+    from_pos loc.loc_start loc.loc_end
+
+  let from_lexbuf (lexbuf : Lexing.lexbuf) =
+    from_pos lexbuf.lex_start_p lexbuf.lex_curr_p
 
   let contains (r1 : t) (r2 : t) =
     r1.start <= r2.start && r2.end_ <= r1.end_
+
+  let contains_p (r : t) (p : Position.t) =
+    r.start <= p && p <= r.end_
 end
