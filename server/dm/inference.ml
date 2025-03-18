@@ -142,8 +142,6 @@ let infer_var (id : string) (top : expr) (sub : expr) : string =
         String.sub fty 0 i
       with Unification_error_with_loc (msg, _) -> msg)
   | _ -> failwith "Unreachable"
-  
-(* let infer_letval (top : expr) (sub : expr) = *)
 
 let token_at_pos (raw : string) (pos : Position.t) =
   match Lexing.from_string raw with
@@ -192,14 +190,9 @@ let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) : (string
   let pgmtxt = st.rawState in
   let token_opt = token_at_pos pgmtxt curr_pos in
 
-  (* let ast = match st.parsedState with
-    | Ast x -> x
-    | Fail _ -> failwith "meaningless branch; refactor needed"
-  in *)
   let subexp = match (subexp_at_pos exp curr_pos) with
     | Some e -> e | _ -> failwith "Subexpression unfound"
   in
-  (* let range = Range.from_location exp.loc in *)
 
   match token_opt with
   | Some (ID x, range) -> Some (infer_var x exp subexp, range)
