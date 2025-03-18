@@ -13,13 +13,9 @@ open Range
 open Language
 
 module SemanticTokens = struct
-  type t = result option
-  [@@yojson.option]
-
+  type t = result option [@@yojson.option]
   and result = { data : data }
-
-  and data = int list
-  [@@deriving yojson]
+  and data = int list [@@deriving yojson]
 
   let create ~data : t = Some { data }
 end
@@ -49,17 +45,9 @@ module TokenType = struct
 end
 
 module Token = struct
-  type t =
-    { ln : int
-    ; col : int
-    ; len : int
-    ; type_ : int
-    ; modif : int }
+  type t = { ln : int; col : int; len : int; type_ : int; modif : int }
 
-  let compare x y =
-    if x.ln != y.ln then y.ln - x.ln
-    else y.col - x.col
-
+  let compare x y = if x.ln != y.ln then y.ln - x.ln else y.col - x.col
   let sort = List.sort compare
 
   let make ~ln ~col ~len ~type_ : t =
@@ -83,29 +71,28 @@ module Token = struct
       | x :: y :: t ->
           let ln = x.ln - y.ln in
           let col = if ln > 0 then x.col else x.col - y.col in
-          let len, type_ = x.len, x.type_ in
+          let len, type_ = (x.len, x.type_) in
           let acc' = [ ln; col; len; type_; 0 ] @ acc in
           deltaize acc' (y :: t)
     in
-    tokens |> sort |> (deltaize [])
+    tokens |> sort |> deltaize []
 end
 
-let rec get_token_type : Parser.token -> (TokenType.t option * Range.t option) = function
-  | TRUE | FALSE -> Some Enum, None
-  | INT _ -> Some Number, None
-  | ID _ -> Some Variable, None
-  | STRING _ -> Some String_, None
-  | VAL | FN | REC | LET | IN | END
-  | IF | THEN | ELSE -> Some Keyword, None
-  | READ | WRITE
-  | AND | OR | PLUS | MINUS
-  | COLEQ | MALLOC | BANG -> Some Function, None
-  | EQ | RARROW -> Some Operator, None
+let rec get_token_type : Parser.token -> TokenType.t option * Range.t option =
+  function
+  | TRUE | FALSE -> (Some Enum, None)
+  | INT _ -> (Some Number, None)
+  | ID _ -> (Some Variable, None)
+  | STRING _ -> (Some String_, None)
+  | VAL | FN | REC | LET | IN | END | IF | THEN | ELSE -> (Some Keyword, None)
+  | READ | WRITE | AND | OR | PLUS | MINUS | COLEQ | MALLOC | BANG ->
+      (Some Function, None)
+  | EQ | RARROW -> (Some Operator, None)
   | COMMENT (c, loc_start, loc_end) ->
-    let cloc = Location.{ loc_start; loc_end; loc_ghost = false } in
-    let r = Range.from_location cloc in
-    Some Comment, Some r
-  | _ -> None, None
+      let cloc = Location.{ loc_start; loc_end; loc_ghost = false } in
+      let r = Range.from_location cloc in
+      (Some Comment, Some r)
+  | _ -> (None, None)
 
 let highlight lexbuf =
   let acc = ref [] in
@@ -114,29 +101,26 @@ let highlight lexbuf =
     match Lexer.read lexbuf with
     | EOF -> ()
     | token ->
-        begin match (get_token_type token) with
+        (match get_token_type token with
         | Some Comment, Some range ->
-          acc := !acc @ [ Token.from_range range ~type_:Comment ]
+            acc := !acc @ [ Token.from_range range ~type_:Comment ]
         | Some type_, _ ->
-          let range = Range.from_lexbuf lexbuf in
-          acc := !acc @ [ Token.from_range range ~type_ ]
-        | None, _ -> ()
-        end;
+            let range = Range.from_lexbuf lexbuf in
+            acc := !acc @ [ Token.from_range range ~type_ ]
+        | None, _ -> ());
         inner ()
     | exception _ -> inner ()
   in
 
-  inner (); !acc
+  inner ();
+  !acc
 
-let lexbuf_to_data lexbuf =
-  lexbuf |> highlight |> Token.to_data
+let lexbuf_to_data lexbuf = lexbuf |> highlight |> Token.to_data
 
 let compute params =
   let uri = get_uri params in
   let raw =
-    match findr uri with
-    | Some x -> x
-    | None -> failwith "Lookup failure"
+    match findr uri with Some x -> x | None -> failwith "Lookup failure"
   in
   match Lexing.from_string raw with
   | lexbuf -> SemanticTokens.create ~data:(lexbuf_to_data lexbuf)

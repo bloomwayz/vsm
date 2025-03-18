@@ -10,26 +10,10 @@ open Yojson.Safe.Util
 
 (** Message Types **)
 
-type obj =
-  | Req of request
-  | Resp of response
-  | Notif of notification
-
-and request =
-  { id : int
-  ; method_ : string
-  ; params : Yojson.Safe.t
-  }
-
-and response =
-  { id : int
-  ; result : Yojson.Safe.t
-  }
-
-and notification =
-  { method_ : string
-  ; params_ : Yojson.Safe.t
-  }
+type obj = Req of request | Resp of response | Notif of notification
+and request = { id : int; method_ : string; params : Yojson.Safe.t }
+and response = { id : int; result : Yojson.Safe.t }
+and notification = { method_ : string; params_ : Yojson.Safe.t }
 
 (** yojson to obj **)
 
@@ -54,41 +38,28 @@ let obj_of_yojson yojson =
   let is_resp = is_null (member "method" yojson) in
   let is_notif = is_null (member "id" yojson) in
 
-  if is_resp then
-    Resp (response_of_yojson yojson)
-  else if is_notif then
-    Notif (notification_of_yojson yojson)
-  else
-    Req (request_of_yojson yojson)
+  if is_resp then Resp (response_of_yojson yojson)
+  else if is_notif then Notif (notification_of_yojson yojson)
+  else Req (request_of_yojson yojson)
 
 (** obj to yojson **)
 
 let yojson_of_request { id; method_; params } =
-  `Assoc
-  [ ( "id", `Int id )
-  ; ( "method", `String method_ )
-  ; ( "params", params )
-  ]
+  `Assoc [ ("id", `Int id); ("method", `String method_); ("params", params) ]
 
 let yojson_of_response { id; result } =
-  `Assoc
-  [ ( "id", `Int id )
-  ; ( "result", result )
-  ]
+  `Assoc [ ("id", `Int id); ("result", result) ]
 
 let yojson_of_notification { method_; params_ } =
-  `Assoc
-  [ ( "method", `String method_ )
-  ; ( "params", params_ )
-  ]
+  `Assoc [ ("method", `String method_); ("params", params_) ]
 
 (** Log handler **)
 
 let current_id = ref (-1)
 
 let id_of_obj = function
-  | Req req -> Some (req.id)
-  | Resp resp -> Some (resp.id)
+  | Req req -> Some req.id
+  | Resp resp -> Some resp.id
   | Notif _ -> None
 
 let make_prefix = function
@@ -100,17 +71,14 @@ let init_log () =
   let mode = [ Open_creat; Open_trunc ] in
   let oc = open_out_gen mode 0o664 "log.txt" in
   close_out oc
-  
+
 let output_log pref msg id =
   let mode = [ Open_creat; Open_append ] in
   let oc = open_out_gen mode 0o664 "log.txt" in
   Printf.fprintf oc "%s\n%s\n\n" pref msg;
   close_out oc;
 
-  begin match id with
-    | Some x -> current_id := x
-    | None -> ()
-  end
+  match id with Some x -> current_id := x | None -> ()
 
 (** Input handler **)
 
@@ -133,7 +101,8 @@ let output_json msg =
 let send obj =
   let prefix = make_prefix obj in
 
-  let yojson = match obj with
+  let yojson =
+    match obj with
     | Req x -> yojson_of_request x
     | Resp x -> yojson_of_response x
     | Notif x -> yojson_of_notification x

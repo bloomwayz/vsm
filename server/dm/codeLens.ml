@@ -14,15 +14,8 @@ open Inference
 
 module CodeLensResult = struct
   type t = codelens list
-
-  and codelens =
-    { range : Range.t
-    ; command : command }
-
-  and command =
-    { title : string
-    ; command : string }
-  [@@deriving yojson]
+  and codelens = { range : Range.t; command : command }
+  and command = { title : string; command : string } [@@deriving yojson]
 
   let create ~range ~title : t =
     let command = { title; command = "" } in
@@ -30,7 +23,7 @@ module CodeLensResult = struct
 end
 
 let sprint_top ast =
-  match (check_top ast) with
+  match check_top ast with
   | ty -> undisclose (string_of_ty ty)
   | exception _ -> ""
 
@@ -41,9 +34,7 @@ let get_title : States.pstate -> string = function
 let compute params =
   let uri = get_uri params in
   let pstate =
-    match findp uri with
-    | Some x -> x
-    | None -> failwith "Lookup failure"
+    match findp uri with Some x -> x | None -> failwith "Lookup failure"
   in
   let range = Range.from_tuples (0, 0) (0, 0) in
   let title = get_title pstate in

@@ -16,9 +16,7 @@ exception Unbound_variable = Unbound_variable
 exception Unification_error_with_loc = Unification_error_with_loc
 
 let check_top = check_top
-
 let check_sub = check_sub
-
 let string_of_ty = string_of_ty
 
 let undisclose s =
@@ -39,7 +37,7 @@ let undisclose s =
 
 let rec traverse_ast (exp : expr) (acc : expr list) =
   match exp.desc with
-  | Const _ | Var _ | Read -> (exp :: acc)
+  | Const _ | Var _ | Read -> exp :: acc
   | Fn (_, e) | Write e | Fst e | Snd e | Malloc e | Deref e ->
       traverse_ast e (exp :: acc)
   | App (e1, e2)
@@ -57,7 +55,7 @@ let rec traverse_ast (exp : expr) (acc : expr list) =
       traverse_ast e3 acc''
 
 let in_range (pos : Position.t) (exp : expr) =
-  let exp_range = Range.from_location (exp.loc) in
+  let exp_range = Range.from_location exp.loc in
   Range.contains_p exp_range pos
 
 let subexp_at_pos (ast : expr) (pos : Position.t) =
@@ -89,52 +87,49 @@ let string_of_token (token : Parser.token) =
   | MALLOC -> "'a -> 'a loc"
   | COLEQ -> "'a loc -> 'a -> 'a"
   | BANG -> "'a loc -> 'a"
-  | STRING _ -> "string" 
+  | STRING _ -> "string"
   | INT _ -> "int"
   | _ -> ""
-  
+
 let token_with_lexbuf (lexbuf : Lexing.lexbuf) (pos : Position.t) =
   let rec inner () =
     let token = Lexer.read lexbuf in
     match token with
     | EOF -> None
-    | _ -> 
-      let range = Range.from_lexbuf lexbuf in
-      if Range.contains_p range pos then Some (token, range)
-      else inner ()
+    | _ ->
+        let range = Range.from_lexbuf lexbuf in
+        if Range.contains_p range pos then Some (token, range) else inner ()
   in
   inner ()
 
 let infer_var (id : string) (top : expr) (sub : expr) : string =
   match sub.desc with
-  | Var x ->
-      (try
+  | Var x -> (
+      try
         let fty = check_sub top sub in
         string_of_ty fty
       with Unification_error_with_loc (msg, _) -> msg)
-  | Let (Val (x, e1), _) ->
-      (try
+  | Let (Val (x, e1), _) -> (
+      try
         let fty = check_sub top e1 in
         string_of_ty fty
       with Unification_error_with_loc (msg, _) -> msg)
   | Let (Rec (f, x, e1), e2) ->
       let fexp = { desc = Fn (x, e1); loc = sub.loc } in
-      begin if id = f then
-        (try
+      if id = f then
+        try
           let fty = check_sub top fexp in
           string_of_ty fty
-        with Unification_error_with_loc (msg, _) -> msg)
+        with Unification_error_with_loc (msg, _) -> msg
       else if id = x then
-        (try
+        try
           let fty = string_of_ty (check_sub top fexp) in
           let i = Str.search_forward (Str.regexp {| -> |}) fty 0 in
           String.sub fty 0 i
-        with Unification_error_with_loc (msg, _) -> msg)
-      else
-        failwith "id not matched"
-      end
-  | Fn (x, e) ->
-      (try
+        with Unification_error_with_loc (msg, _) -> msg
+      else failwith "id not matched"
+  | Fn (x, e) -> (
+      try
         let fty = check_sub top sub in
         let fty = string_of_ty fty in
         let r = Str.regexp {| -> |} in
@@ -157,41 +152,42 @@ let infer_fn (top : expr) (sub : expr) =
 let infer_letval (top : expr) (sub : expr) =
   match sub.desc with
   | Let (Val (x, e1), _) ->
-      (let fty_str =
+      let fty_str =
         try
           let fty = check_sub top e1 in
           string_of_ty fty
         with Unification_error_with_loc (msg, _) -> msg
       in
       let r = Range.from_location sub.loc in
-      let sln, scl = r.start.ln, r.start.col in
+      let sln, scl = (r.start.ln, r.start.col) in
       let _, eln, ecl = Location.get_pos_info e1.loc.loc_end in
       let r' = Range.from_tuples (sln, scl) (eln - 1, ecl) in
-      Some (fty_str, r'))
+      Some (fty_str, r')
   | _ -> None
 
 let infer_letrec (top : expr) (sub : expr) =
   match sub.desc with
-  | Let (Rec (f, x, e1), e2) ->
-    let range = Range.from_location sub.loc in
-    begin match check_sub top sub with
-    | x -> Some (string_of_ty x, range)
-    | exception _ -> None
-    end
-  | Fst _ | Snd _ | Pair _ ->
-    let range = Range.from_location sub.loc in
-    begin match check_sub top sub with
-    | x -> Some (string_of_ty x, range)
-    | exception _ -> None
-    end
+  | Let (Rec (f, x, e1), e2) -> (
+      let range = Range.from_location sub.loc in
+      match check_sub top sub with
+      | x -> Some (string_of_ty x, range)
+      | exception _ -> None)
+  | Fst _ | Snd _ | Pair _ -> (
+      let range = Range.from_location sub.loc in
+      match check_sub top sub with
+      | x -> Some (string_of_ty x, range)
+      | exception _ -> None)
   | _ -> failwith "Unreachable"
 
-let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) : (string * Range.t) option =
+let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) :
+    (string * Range.t) option =
   let pgmtxt = st.rawState in
   let token_opt = token_at_pos pgmtxt curr_pos in
 
-  let subexp = match (subexp_at_pos exp curr_pos) with
-    | Some e -> e | _ -> failwith "Subexpression unfound"
+  let subexp =
+    match subexp_at_pos exp curr_pos with
+    | Some e -> e
+    | _ -> failwith "Subexpression unfound"
   in
 
   match token_opt with
@@ -199,29 +195,23 @@ let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) : (string
   | Some (VAL, range) -> infer_letval exp subexp
   | Some (REC, range) -> infer_letrec exp subexp
   | Some (FN, range) | Some (RARROW, range) -> infer_fn exp subexp
-  | Some (EQ, range) ->
-    begin match subexp.desc with
-    | Let (Val (_, _), _) -> infer_letval exp subexp
-    | Let (Rec (_, _, _), _) -> infer_letrec exp subexp
-    | Bop (Eq, _, _) -> Some ("'a -> 'a -> 'a", range)
-    | _ -> failwith "Unreachable"
-    end
-  | Some (INT 1, range) ->
-    begin match subexp.desc with
-    | Fst _ -> infer_letrec exp subexp
-    | Const (Int 1) -> Some ("int", range)
-    | _ -> failwith "Unreachable"
-    end
-  | Some (INT 2, range) ->
-    begin match subexp.desc with
-    | Fst _ -> infer_letrec exp subexp
-    | Const (Int 2) -> Some ("int", range)
-    | _ -> failwith "Unreachable"
-    end
-  | Some (DOT, range) | Some (COMMA, range) ->
-    infer_letrec exp subexp
-  | Some (token, range) ->
-      begin match string_of_token token with
-      | "" -> None | s -> Some (s, range)
-      end
+  | Some (EQ, range) -> (
+      match subexp.desc with
+      | Let (Val (_, _), _) -> infer_letval exp subexp
+      | Let (Rec (_, _, _), _) -> infer_letrec exp subexp
+      | Bop (Eq, _, _) -> Some ("'a -> 'a -> 'a", range)
+      | _ -> failwith "Unreachable")
+  | Some (INT 1, range) -> (
+      match subexp.desc with
+      | Fst _ -> infer_letrec exp subexp
+      | Const (Int 1) -> Some ("int", range)
+      | _ -> failwith "Unreachable")
+  | Some (INT 2, range) -> (
+      match subexp.desc with
+      | Fst _ -> infer_letrec exp subexp
+      | Const (Int 2) -> Some ("int", range)
+      | _ -> failwith "Unreachable")
+  | Some (DOT, range) | Some (COMMA, range) -> infer_letrec exp subexp
+  | Some (token, range) -> (
+      match string_of_token token with "" -> None | s -> Some (s, range))
   | _ -> None

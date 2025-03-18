@@ -13,20 +13,11 @@ open Range
 open Inference
 
 module HoverResult = struct
-  type t = result option
-  [@@yojson.option]
+  type t = result option [@@yojson.option]
+  and result = { contents : contents; range : Range.t }
+  and contents = { kind : string; value : string } [@@deriving yojson]
 
-  and result =
-    { contents : contents
-    ; range : Range.t }
-
-  and contents =
-    { kind : string
-    ; value : string }
-  [@@deriving yojson]
-
-  let markup value =
-    "```ocaml\n" ^ value ^ "\n```"
+  let markup value = "```ocaml\n" ^ value ^ "\n```"
 
   let create ~value ~range : t =
     let kind = "markdown" in
@@ -37,21 +28,15 @@ end
 
 let compute params =
   let uri = get_uri params in
-  let curr_pos =
-    params |> member "position" |> Position.t_of_yojson
-  in
+  let curr_pos = params |> member "position" |> Position.t_of_yojson in
   let st =
-    match finds uri with
-    | Some st -> st
-    | None -> failwith "Lookup failure"
+    match finds uri with Some st -> st | None -> failwith "Lookup failure"
   in
   match st.parsedState with
-  | Ast ast ->
-      begin match (infer_sub st ast curr_pos) with
-      | Some (value, range) ->
-        HoverResult.create ~value ~range
-      | None -> None
-      end
+  | Ast ast -> (
+      match infer_sub st ast curr_pos with
+      | Some (value, range) -> HoverResult.create ~value ~range
+      | None -> None)
   | Fail _ -> None
 
 let run id params =

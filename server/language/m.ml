@@ -41,7 +41,9 @@ let get_program_from_string (filename : string) (state : string) : Syntax.expr =
   | exception Parser.Error ->
       let open Lexing in
       let pos = lexbuf.lex_curr_p in
-      raise (SyntaxError ("Parsing Error", pos.pos_lnum, pos.pos_cnum - pos.pos_bol + 1))
+      raise
+        (SyntaxError
+           ("Parsing Error", pos.pos_lnum, pos.pos_cnum - pos.pos_bol + 1))
   | exception Lexer.SyntaxError msg ->
       let open Lexing in
       let pos = lexbuf.lex_curr_p in

@@ -5,7 +5,6 @@ exception Unbound_variable of string * Location.t
 
 type ty
 type ty_scheme
-
 type subs = ty -> ty
 
 val string_of_ty : ty -> string

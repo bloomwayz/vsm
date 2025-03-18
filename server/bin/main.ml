@@ -12,25 +12,19 @@ let read_header () =
   let header_len = String.length header in
 
   let is_readable =
-    header != "\r" &&
-    header_len >= 16 &&
-    String.sub header 0 16 = "Content-Length: "
+    header != "\r" && header_len >= 16
+    && String.sub header 0 16 = "Content-Length: "
   in
 
   if is_readable then
-    Some (
-      String.sub header 16 (header_len - 16)
-      |> String.trim
-      |> int_of_string
-    )
-  else
-    failwith "Header reading failure"
+    Some (String.sub header 16 (header_len - 16) |> String.trim |> int_of_string)
+  else failwith "Header reading failure"
 
 let read_content len =
   let _ = input_line stdin in
   really_input_string stdin len
 
-let dispatch (obj : Protocol.obj) = 
+let dispatch (obj : Protocol.obj) =
   let on_request id method_ params =
     match method_ with
     | "initialize" -> Init.run id params
@@ -51,7 +45,7 @@ let dispatch (obj : Protocol.obj) =
     | _ -> ()
     (* | unknown_method -> failwith ("unknown method: " ^ unknown_method) *)
   in
-  
+
   match obj with
   | Req req -> on_request req.id req.method_ req.params
   | Notif notif -> on_notification notif.method_ notif.params_

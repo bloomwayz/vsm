@@ -13,16 +13,10 @@ open Range
 open Inference
 
 module DiagnosticReport = struct
-  type t = report option [@yojson.option]
+  type t = (report option[@yojson.option])
+  and report = { kind : string; items : item list }
 
-  and report =
-    { kind : string
-    ; items : item list }
-
-  and item =
-    { range : Range.t
-    ; severity : int
-    ; message : string }
+  and item = { range : Range.t; severity : int; message : string }
   [@@deriving yojson]
 
   let create ~range ~message : t =
@@ -34,13 +28,12 @@ module DiagnosticReport = struct
 end
 
 let get_rng_msg : States.pstate -> (Range.t * string) option = function
-  | Ast ast ->
-      begin match (check_top ast) with
-        | ty -> None
-        | exception Unification_error_with_loc (msg, loc)
-        | exception Unbound_variable (msg, loc) ->
-            Some (Range.from_location loc, undisclose msg)
-      end
+  | Ast ast -> (
+      match check_top ast with
+      | ty -> None
+      | (exception Unification_error_with_loc (msg, loc))
+      | (exception Unbound_variable (msg, loc)) ->
+          Some (Range.from_location loc, undisclose msg))
   | Fail (msg, ln, _) ->
       let rng = Range.from_tuples (ln, 0) (ln, 100) in
       Some (rng, msg)
@@ -48,15 +41,13 @@ let get_rng_msg : States.pstate -> (Range.t * string) option = function
 let compute params =
   let uri = get_uri params in
   let pstate =
-    match findp uri with
-    | Some x -> x
-    | None -> failwith "Lookup failure"
+    match findp uri with Some x -> x | None -> failwith "Lookup failure"
   in
-  match (get_rng_msg pstate) with
+  match get_rng_msg pstate with
   | Some (range, message) -> DiagnosticReport.create ~range ~message
   | None -> None
 
 let push id params =
   let result_ = compute params in
-  let result = DiagnosticReport.yojson_of_t result_ in 
+  let result = DiagnosticReport.yojson_of_t result_ in
   send (Resp { id; result })

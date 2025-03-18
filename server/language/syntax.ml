@@ -1,7 +1,7 @@
 open! Base
 (** Definition of M's syntax, type and interpreter *)
 
-type expr = { desc: desc; loc: Location.t }
+type expr = { desc : desc; loc : Location.t }
 
 and desc =
   | Const of const
@@ -23,8 +23,7 @@ and desc =
 
 and const = String of string | Int of int | Bool of bool
 and id = string
-
-and decl = { decl_: decl_; loc: Location.t }
+and decl = { decl_ : decl_; loc : Location.t }
 
 and decl_ =
   | Rec of id * id * expr (* Recursive fn (fun_id, arg_id, body) *)
@@ -40,6 +39,5 @@ type typ =
   | T_loc of typ
   | T_arrow of typ * typ
 
-let mk ~loc desc = { desc; loc } 
-
+let mk ~loc desc = { desc; loc }
 let mk_ ~loc decl_ = { decl_; loc }
