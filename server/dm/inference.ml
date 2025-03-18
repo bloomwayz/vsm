@@ -184,34 +184,31 @@ let infer_sub (st : States.state) (exp : expr) (curr_pos : Position.t) :
   let pgmtxt = st.rawState in
   let token_opt = token_at_pos pgmtxt curr_pos in
 
-  let subexp =
-    match subexp_at_pos exp curr_pos with
-    | Some e -> e
-    | _ -> failwith "Subexpression unfound"
-  in
-
-  match token_opt with
-  | Some (ID x, range) -> Some (infer_var x exp subexp, range)
-  | Some (VAL, range) -> infer_letval exp subexp
-  | Some (REC, range) -> infer_letrec exp subexp
-  | Some (FN, range) | Some (RARROW, range) -> infer_fn exp subexp
-  | Some (EQ, range) -> (
-      match subexp.desc with
-      | Let (Val (_, _), _) -> infer_letval exp subexp
-      | Let (Rec (_, _, _), _) -> infer_letrec exp subexp
-      | Bop (Eq, _, _) -> Some ("'a -> 'a -> 'a", range)
-      | _ -> failwith "Unreachable")
-  | Some (INT 1, range) -> (
-      match subexp.desc with
-      | Fst _ -> infer_letrec exp subexp
-      | Const (Int 1) -> Some ("int", range)
-      | _ -> failwith "Unreachable")
-  | Some (INT 2, range) -> (
-      match subexp.desc with
-      | Fst _ -> infer_letrec exp subexp
-      | Const (Int 2) -> Some ("int", range)
-      | _ -> failwith "Unreachable")
-  | Some (DOT, range) | Some (COMMA, range) -> infer_letrec exp subexp
-  | Some (token, range) -> (
-      match string_of_token token with "" -> None | s -> Some (s, range))
+  match subexp_at_pos exp curr_pos with
+  | Some subexp -> (
+      match token_opt with
+      | Some (ID x, range) -> Some (infer_var x exp subexp, range)
+      | Some (VAL, range) -> infer_letval exp subexp
+      | Some (REC, range) -> infer_letrec exp subexp
+      | Some (FN, range) | Some (RARROW, range) -> infer_fn exp subexp
+      | Some (EQ, range) -> (
+          match subexp.desc with
+          | Let (Val (_, _), _) -> infer_letval exp subexp
+          | Let (Rec (_, _, _), _) -> infer_letrec exp subexp
+          | Bop (Eq, _, _) -> Some ("'a -> 'a -> 'a", range)
+          | _ -> failwith "Unreachable")
+      | Some (INT 1, range) -> (
+          match subexp.desc with
+          | Fst _ -> infer_letrec exp subexp
+          | Const (Int 1) -> Some ("int", range)
+          | _ -> failwith "Unreachable")
+      | Some (INT 2, range) -> (
+          match subexp.desc with
+          | Fst _ -> infer_letrec exp subexp
+          | Const (Int 2) -> Some ("int", range)
+          | _ -> failwith "Unreachable")
+      | Some (DOT, range) | Some (COMMA, range) -> infer_letrec exp subexp
+      | Some (token, range) -> (
+          match string_of_token token with "" -> None | s -> Some (s, range))
+      | _ -> None)
   | _ -> None
