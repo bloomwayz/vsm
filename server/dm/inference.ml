@@ -96,9 +96,12 @@ let string_of_token (token : Parser.token) =
 let token_with_lexbuf (lexbuf : Lexing.lexbuf) (pos : Position.t) =
   let rec inner () =
     let token = Lexer.read lexbuf in
-    let range = Range.from_lexbuf lexbuf in
-    if Range.contains_p range pos then Some (token, range)
-    else inner ()
+    match token with
+    | EOF -> None
+    | _ -> 
+      let range = Range.from_lexbuf lexbuf in
+      if Range.contains_p range pos then Some (token, range)
+      else inner ()
   in
   inner ()
 
